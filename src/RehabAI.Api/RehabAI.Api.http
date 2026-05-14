@@ -1,0 +1,6 @@
+@RehabAI.Api_HostAddress = http://localhost:5211
+
+GET {{RehabAI.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

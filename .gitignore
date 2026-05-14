@@ -1,0 +1,16 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.rsuser
+
+appsettings.Local.json
+*.db
+*.db-shm
+*.db-wal
+
+TestResults/
+coverage/
+*.trx
