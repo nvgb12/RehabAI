@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\RehabAI.Api\RehabAI.Api.csproj" />
     <ProjectReference Include="..\..\src\RehabAI.Application\RehabAI.Application.csproj" />
     <ProjectReference Include="..\..\src\RehabAI.Domain\RehabAI.Domain.csproj" />
   </ItemGroup>

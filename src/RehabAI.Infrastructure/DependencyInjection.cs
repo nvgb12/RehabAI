@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using RehabAI.Application.Auth;
 using RehabAI.Application.Chatbot;
 using RehabAI.Application.Emails;
 using RehabAI.Application.Payments;
 using RehabAI.Infrastructure.Ai;
+using RehabAI.Infrastructure.Auth;
 using RehabAI.Infrastructure.Database;
 using RehabAI.Infrastructure.Email;
 using RehabAI.Infrastructure.Payment;
@@ -18,6 +20,12 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
 
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IPatientRegistrationRepository, EfPatientRegistrationRepository>();
+        services.AddScoped<IUserAuthenticationRepository, EfPatientRegistrationRepository>();
+        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.AddSingleton<ISecureTokenService, SecureTokenService>();
+        services.AddSingleton<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IEmailSender, PlaceholderEmailSender>();
         services.AddScoped<IPaymentGateway, PlaceholderPaymentGateway>();
         services.AddScoped<IAiChatClient, PlaceholderAiChatClient>();
