@@ -1,0 +1,160 @@
+using Microsoft.EntityFrameworkCore;
+using RehabAI.Application.Auth;
+using RehabAI.Domain.Entities;
+using RehabAI.Domain.Enums;
+using RehabAI.Infrastructure.Database;
+
+namespace RehabAI.Infrastructure.Auth;
+
+public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
+    IPatientRegistrationRepository,
+    IUserAuthenticationRepository
+{
+    public Task<bool> EmailExistsAsync(string normalizedEmail, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Users.AnyAsync(user => user.Email == normalizedEmail, cancellationToken);
+    }
+
+    public async Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Roles
+            .Where(role => role.Name == roleName)
+            .Select(role => (Guid?)role.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<UserAuthenticationRecord?> GetUserForLoginAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Users
+            .Where(user => user.Email == normalizedEmail)
+            .Select(user => new UserAuthenticationRecord(
+                user.Id,
+                user.Email,
+                user.FullName,
+                user.PasswordHash,
+                (int)user.Status,
+                user.Roles
+                    .Select(userRole => userRole.Role != null ? userRole.Role.Name : string.Empty)
+                    .Where(roleName => roleName != string.Empty)
+                    .OrderBy(roleName => roleName)
+                    .ToList()))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<PendingPatientRegistrationResult> CreatePendingPatientAsync(
+        PendingPatientRegistration registration,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = new User
+        {
+            FullName = registration.FullName,
+            Email = registration.Email,
+            PhoneNumber = registration.PhoneNumber,
+            PasswordHash = registration.PasswordHash,
+            Status = AccountStatus.PendingEmail,
+            EmailConfirmed = false,
+            CreatedAt = now
+        };
+
+        var patientProfile = new PatientProfile
+        {
+            UserId = user.Id,
+            CreatedAt = now
+        };
+
+        var userRole = new UserRoleAssignment
+        {
+            UserId = user.Id,
+            RoleId = registration.PatientRoleId
+        };
+
+        var verificationToken = new UserToken
+        {
+            UserId = user.Id,
+            TokenType = UserTokenType.EmailVerification,
+            TokenHash = registration.VerificationTokenHash,
+            ExpiresAt = registration.VerificationTokenExpiresAt,
+            CreatedAt = now
+        };
+
+        var emailLog = new EmailLog
+        {
+            UserId = user.Id,
+            ToEmail = registration.Email,
+            Subject = registration.EmailSubject,
+            TemplateName = registration.EmailTemplateName,
+            Status = "Pending",
+            CreatedAt = now
+        };
+
+        dbContext.Users.Add(user);
+        dbContext.PatientProfiles.Add(patientProfile);
+        dbContext.UserRoles.Add(userRole);
+        dbContext.UserTokens.Add(verificationToken);
+        dbContext.EmailLogs.Add(emailLog);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new PendingPatientRegistrationResult(user.Id, emailLog.Id);
+    }
+
+    public async Task<IReadOnlyList<EmailVerificationTokenRecord>> GetEmailVerificationTokensAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.UserTokens
+            .Where(token =>
+                token.TokenType == UserTokenType.EmailVerification &&
+                token.User != null &&
+                token.User.Email == normalizedEmail)
+            .Select(token => new EmailVerificationTokenRecord(
+                token.UserId,
+                token.Id,
+                token.User!.Email,
+                token.TokenHash,
+                token.ExpiresAt,
+                token.UsedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task CompleteEmailVerificationAsync(Guid userId, Guid tokenId, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = await dbContext.Users.SingleAsync(user => user.Id == userId, cancellationToken);
+        var token = await dbContext.UserTokens.SingleAsync(token => token.Id == tokenId, cancellationToken);
+
+        token.UsedAt = now;
+        token.UpdatedAt = now;
+        user.EmailConfirmed = true;
+        user.Status = AccountStatus.Active;
+        user.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkVerificationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
+    {
+        var emailLog = await dbContext.EmailLogs.SingleAsync(log => log.Id == emailLogId, cancellationToken);
+        emailLog.Status = "Sent";
+        emailLog.SentAt = DateTimeOffset.UtcNow;
+        emailLog.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkVerificationEmailFailedAsync(
+        Guid emailLogId,
+        string errorMessage,
+        CancellationToken cancellationToken = default)
+    {
+        var emailLog = await dbContext.EmailLogs.SingleAsync(log => log.Id == emailLogId, cancellationToken);
+        emailLog.Status = "Failed";
+        emailLog.ErrorMessage = errorMessage;
+        emailLog.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+}
