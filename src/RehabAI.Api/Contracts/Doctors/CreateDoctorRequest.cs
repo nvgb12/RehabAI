@@ -5,4 +5,5 @@ public sealed record CreateDoctorRequest(
     string Email,
     string PhoneNumber,
     Guid SpecialtyId,
-    string? Bio);
+    string? Bio,
+    int? YearsOfExperience);

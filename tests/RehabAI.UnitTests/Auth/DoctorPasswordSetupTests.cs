@@ -9,22 +9,22 @@ using RehabAI.Application.Emails;
 
 namespace RehabAI.UnitTests.Auth;
 
-public class EmailVerificationTests
+public class DoctorPasswordSetupTests
 {
     [Fact]
-    public async Task VerifyEmailAsync_WithValidToken_VerifiesSuccessfully()
+    public async Task SetupDoctorPassword_WithValidToken_ActivatesDoctor()
     {
         var userId = Guid.NewGuid();
         var tokenId = Guid.NewGuid();
         var tokenService = new FakeTokenService();
-        var repository = new FakePatientRegistrationRepository
+        var repository = new FakeAuthRepository
         {
-            Tokens =
+            DoctorInvitationTokens =
             [
-                new EmailVerificationTokenRecord(
+                new DoctorInvitationTokenRecord(
                     userId,
                     tokenId,
-                    "patient@example.com",
+                    "doctor@example.com",
                     tokenService.HashToken("raw-token"),
                     DateTimeOffset.UtcNow.AddHours(1),
                     null)
@@ -32,25 +32,27 @@ public class EmailVerificationTests
         };
         var service = CreateService(repository, tokenService);
 
-        var result = await service.VerifyEmailAsync(new VerifyEmailCommand("patient@example.com", "raw-token"));
+        var result = await service.SetupDoctorPasswordAsync(
+            new SetupDoctorPasswordCommand("doctor@example.com", "raw-token", "Password@123"));
 
         Assert.True(result.Succeeded);
-        Assert.Equal(userId, repository.CompletedUserId);
-        Assert.Equal(tokenId, repository.CompletedTokenId);
+        Assert.Equal(userId, repository.CompletedDoctorUserId);
+        Assert.Equal(tokenId, repository.CompletedDoctorTokenId);
+        Assert.Equal("hashed:Password@123", repository.CompletedDoctorPasswordHash);
     }
 
     [Fact]
-    public async Task VerifyEmail_WithReusedToken_Returns409()
+    public async Task SetupDoctorPassword_WithReusedToken_Returns409()
     {
         var tokenService = new FakeTokenService();
-        var repository = new FakePatientRegistrationRepository
+        var repository = new FakeAuthRepository
         {
-            Tokens =
+            DoctorInvitationTokens =
             [
-                new EmailVerificationTokenRecord(
+                new DoctorInvitationTokenRecord(
                     Guid.NewGuid(),
                     Guid.NewGuid(),
-                    "patient@example.com",
+                    "doctor@example.com",
                     tokenService.HashToken("raw-token"),
                     DateTimeOffset.UtcNow.AddHours(1),
                     DateTimeOffset.UtcNow)
@@ -58,23 +60,25 @@ public class EmailVerificationTests
         };
         var controller = CreateController(CreateService(repository, tokenService));
 
-        var response = await controller.VerifyEmail(new VerifyEmailRequest("patient@example.com", "raw-token"), CancellationToken.None);
+        var response = await controller.SetupDoctorPassword(
+            new SetupDoctorPasswordRequest("doctor@example.com", "raw-token", "Password@123"),
+            CancellationToken.None);
 
         Assert.IsType<ConflictObjectResult>(response);
     }
 
     [Fact]
-    public async Task VerifyEmail_WithInvalidToken_Returns400()
+    public async Task SetupDoctorPassword_WithInvalidToken_Returns400()
     {
         var tokenService = new FakeTokenService();
-        var repository = new FakePatientRegistrationRepository
+        var repository = new FakeAuthRepository
         {
-            Tokens =
+            DoctorInvitationTokens =
             [
-                new EmailVerificationTokenRecord(
+                new DoctorInvitationTokenRecord(
                     Guid.NewGuid(),
                     Guid.NewGuid(),
-                    "patient@example.com",
+                    "doctor@example.com",
                     tokenService.HashToken("different-token"),
                     DateTimeOffset.UtcNow.AddHours(1),
                     null)
@@ -82,23 +86,25 @@ public class EmailVerificationTests
         };
         var controller = CreateController(CreateService(repository, tokenService));
 
-        var response = await controller.VerifyEmail(new VerifyEmailRequest("patient@example.com", "raw-token"), CancellationToken.None);
+        var response = await controller.SetupDoctorPassword(
+            new SetupDoctorPasswordRequest("doctor@example.com", "raw-token", "Password@123"),
+            CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(response);
     }
 
     [Fact]
-    public async Task VerifyEmail_WithExpiredToken_Returns410()
+    public async Task SetupDoctorPassword_WithExpiredToken_Returns410()
     {
         var tokenService = new FakeTokenService();
-        var repository = new FakePatientRegistrationRepository
+        var repository = new FakeAuthRepository
         {
-            Tokens =
+            DoctorInvitationTokens =
             [
-                new EmailVerificationTokenRecord(
+                new DoctorInvitationTokenRecord(
                     Guid.NewGuid(),
                     Guid.NewGuid(),
-                    "patient@example.com",
+                    "doctor@example.com",
                     tokenService.HashToken("raw-token"),
                     DateTimeOffset.UtcNow.AddHours(-1),
                     null)
@@ -106,15 +112,15 @@ public class EmailVerificationTests
         };
         var controller = CreateController(CreateService(repository, tokenService));
 
-        var response = await controller.VerifyEmail(new VerifyEmailRequest("patient@example.com", "raw-token"), CancellationToken.None);
+        var response = await controller.SetupDoctorPassword(
+            new SetupDoctorPasswordRequest("doctor@example.com", "raw-token", "Password@123"),
+            CancellationToken.None);
         var objectResult = Assert.IsType<ObjectResult>(response);
 
         Assert.Equal(StatusCodes.Status410Gone, objectResult.StatusCode);
     }
 
-    private static AuthService CreateService(
-        FakePatientRegistrationRepository repository,
-        ISecureTokenService tokenService)
+    private static AuthService CreateService(FakeAuthRepository repository, ISecureTokenService tokenService)
     {
         return new AuthService(
             repository,
@@ -130,13 +136,14 @@ public class EmailVerificationTests
         return new AuthController(authService, new FakeHostEnvironment());
     }
 
-    private sealed class FakePatientRegistrationRepository :
+    private sealed class FakeAuthRepository :
         IPatientRegistrationRepository,
         IUserAuthenticationRepository
     {
-        public IReadOnlyList<EmailVerificationTokenRecord> Tokens { get; init; } = [];
-        public Guid? CompletedUserId { get; private set; }
-        public Guid? CompletedTokenId { get; private set; }
+        public IReadOnlyList<DoctorInvitationTokenRecord> DoctorInvitationTokens { get; init; } = [];
+        public Guid? CompletedDoctorUserId { get; private set; }
+        public Guid? CompletedDoctorTokenId { get; private set; }
+        public string? CompletedDoctorPasswordHash { get; private set; }
 
         public Task<bool> EmailExistsAsync(string normalizedEmail, CancellationToken cancellationToken = default)
         {
@@ -159,13 +166,11 @@ public class EmailVerificationTests
             string normalizedEmail,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(Tokens.Where(token => token.Email == normalizedEmail).ToList() as IReadOnlyList<EmailVerificationTokenRecord>);
+            return Task.FromResult<IReadOnlyList<EmailVerificationTokenRecord>>([]);
         }
 
         public Task CompleteEmailVerificationAsync(Guid userId, Guid tokenId, CancellationToken cancellationToken = default)
         {
-            CompletedUserId = userId;
-            CompletedTokenId = tokenId;
             return Task.CompletedTask;
         }
 
@@ -173,7 +178,10 @@ public class EmailVerificationTests
             string normalizedEmail,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<IReadOnlyList<DoctorInvitationTokenRecord>>([]);
+            return Task.FromResult(
+                DoctorInvitationTokens
+                    .Where(token => token.Email == normalizedEmail)
+                    .ToList() as IReadOnlyList<DoctorInvitationTokenRecord>);
         }
 
         public Task CompleteDoctorPasswordSetupAsync(
@@ -182,14 +190,10 @@ public class EmailVerificationTests
             string passwordHash,
             CancellationToken cancellationToken = default)
         {
+            CompletedDoctorUserId = userId;
+            CompletedDoctorTokenId = tokenId;
+            CompletedDoctorPasswordHash = passwordHash;
             return Task.CompletedTask;
-        }
-
-        public Task<UserAuthenticationRecord?> GetUserForLoginAsync(
-            string normalizedEmail,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<UserAuthenticationRecord?>(null);
         }
 
         public Task MarkVerificationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
@@ -203,6 +207,13 @@ public class EmailVerificationTests
             CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+
+        public Task<UserAuthenticationRecord?> GetUserForLoginAsync(
+            string normalizedEmail,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<UserAuthenticationRecord?>(null);
         }
     }
 
