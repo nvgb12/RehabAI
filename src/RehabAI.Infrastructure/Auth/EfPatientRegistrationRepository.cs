@@ -135,6 +135,44 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DoctorInvitationTokenRecord>> GetDoctorInvitationTokensAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.UserTokens
+            .Where(token =>
+                token.TokenType == UserTokenType.DoctorInvitation &&
+                token.User != null &&
+                token.User.Email == normalizedEmail)
+            .Select(token => new DoctorInvitationTokenRecord(
+                token.UserId,
+                token.Id,
+                token.User!.Email,
+                token.TokenHash,
+                token.ExpiresAt,
+                token.UsedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task CompleteDoctorPasswordSetupAsync(
+        Guid userId,
+        Guid tokenId,
+        string passwordHash,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = await dbContext.Users.SingleAsync(user => user.Id == userId, cancellationToken);
+        var token = await dbContext.UserTokens.SingleAsync(token => token.Id == tokenId, cancellationToken);
+
+        token.UsedAt = now;
+        token.UpdatedAt = now;
+        user.PasswordHash = passwordHash;
+        user.Status = AccountStatus.Active;
+        user.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task MarkVerificationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
     {
         var emailLog = await dbContext.EmailLogs.SingleAsync(log => log.Id == emailLogId, cancellationToken);

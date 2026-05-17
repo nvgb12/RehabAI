@@ -16,8 +16,92 @@ This file records current implementation progress and environment state. It is d
 - Patient email verification is testable from Swagger in Development because `register-patient` returns the raw verification token only when the API environment is `Development`.
 - Patient email verification token matching has been hardened so token hashing is deterministic and separate from password hashing.
 - Login MVP has been implemented for active verified users with password verification and a minimal JWT access token.
+- Admin-created Doctor account MVP has been implemented. Doctors do not self-register in the current implementation.
+- Doctor invitation password setup MVP has been implemented.
+- Medical Services CRUD MVP has been implemented.
 
-## 2. Database Setup
+## 2. Current Completed MVP Features
+
+- Project/database setup:
+  - Rehab AI solution is set up with Clean Architecture / Modular Monolith.
+  - SQL Server database `RehabAIDb` is created and connected.
+  - EF Core `InitialCreate` migration has been created and applied.
+  - Current connection string is stored in `src/RehabAI.Api/appsettings.json`.
+  - Database is running on the local SQL Server instance through `localhost`.
+- Seed data:
+  - Seed logic is implemented in Infrastructure and is idempotent.
+  - Roles are seeded, including `Patient`, `Doctor`, `Admin`, `AuthorizedInternalStaff`, `VerificationAdmin`, `SupportStaff`, and `FinanceAdmin`.
+  - Specialties are seeded.
+  - Subscription plans are seeded.
+  - System settings are seeded.
+- Patient Registration MVP:
+  - Endpoint: `POST /api/Auth/register-patient`.
+  - Guests can register only as Patients.
+  - New Patient users are created with `Status = PendingEmail`.
+  - Passwords are hashed before saving.
+  - Patient role is assigned from the seeded `Roles` table.
+  - `PatientProfile` is created.
+  - Email verification token is generated.
+  - Only token hash is stored in `UserTokens`.
+  - `EmailLog` is created.
+  - Duplicate email returns conflict.
+  - Flow has been tested with Swagger and SQL Server Management Studio.
+- Patient Email Verification MVP:
+  - Endpoint: `POST /api/Auth/verify-email`.
+  - Token verification uses deterministic token hashing, not salted password hashing.
+  - Valid token sets `Users.EmailConfirmed = true`.
+  - Valid token sets `Users.Status = Active`.
+  - Valid token sets `UserTokens.UsedAt`.
+  - Invalid token returns bad request.
+  - Used token returns conflict.
+  - Expired token returns gone.
+  - In Development only, `register-patient` returns raw verification token/setup helper info for Swagger testing.
+  - Production must not expose raw tokens.
+  - Flow has been tested with Swagger and SQL Server Management Studio.
+- Login MVP:
+  - Endpoint: `POST /api/Auth/login`.
+  - Login uses email and password.
+  - Password is checked with the existing password hasher.
+  - Only `Active` users can log in normally.
+  - `PendingEmail` users are blocked with a verify-email message.
+  - `PendingPasswordSetup` users are blocked from normal login.
+  - `Locked`, `Suspended`, and `Deactivated` users are blocked.
+  - Successful login returns `userId`, `email`, `fullName`, `roles`, and `accessToken`.
+  - Active Patient login has been tested successfully in Swagger.
+- Admin-created Doctor Account MVP:
+  - Endpoint: `POST /api/admin/doctors`.
+  - Doctors do not self-register.
+  - Admin creates Doctor accounts.
+  - Created Doctor has `Role = Doctor`.
+  - Created Doctor has `Status = PendingPasswordSetup`.
+  - Created Doctor has `EmailConfirmed = true`.
+  - Created Doctor has `PasswordHash = null`.
+  - `DoctorProfile` is created.
+  - `DoctorInvitation` token is created in `UserTokens`.
+  - Raw invitation token is returned only in Development for Swagger testing.
+  - `AuditLog` is created for Doctor account creation.
+  - Duplicate Doctor email returns conflict.
+  - Flow has been tested with Swagger and SQL Server Management Studio.
+- Doctor Invitation Password Setup MVP:
+  - Endpoint: `POST /api/Auth/setup-doctor-password`.
+  - Doctor uses invitation token to set initial password.
+  - Token type must be `DoctorInvitation`.
+  - Token must match the provided email/user.
+  - Token must not be expired.
+  - Token must not be used.
+  - Successful setup sets `Users.PasswordHash`.
+  - Successful setup sets `Users.Status = Active`.
+  - Successful setup sets `UserTokens.UsedAt`.
+  - Doctor can log in normally after password setup.
+  - Successful password setup has been tested in Swagger.
+- Medical Services CRUD MVP:
+  - Endpoints are implemented for public active service listing/detail and admin create/update/soft-delete.
+  - Newly created services default to `IsActive = true` when `isActive` is omitted from the create request.
+  - Update keeps respecting the provided `isActive` value.
+  - Deleted/inactive services do not appear in public active lists.
+  - Flow has been tested with Swagger-style HTTP calls and SQL Server Management Studio.
+
+## 3. Database Setup
 
 - Database engine: SQL Server.
 - Database name: `RehabAIDb`.
@@ -28,12 +112,12 @@ This file records current implementation progress and environment state. It is d
 - `dotnet ef database update` has been applied successfully.
 - `RehabAIDb` exists in SQL Server and contains the generated tables from the current EF Core model.
 - Core seed data has been applied to `RehabAIDb`:
-  - Roles: 7 records
+  - Roles: 7 records (`Patient`, `Doctor`, `Admin`, `AuthorizedInternalStaff`, `VerificationAdmin`, `SupportStaff`, `FinanceAdmin`)
   - Specialties: 6 records
   - SubscriptionPlans: 2 records
   - SystemSettings: 4 records
 
-## 3. Recently Completed
+## 4. Recently Completed
 
 - Created and connected the SQL Server database.
 - Updated the project connection string to use the main SQL Server instance instead of LocalDB.
@@ -119,8 +203,92 @@ This file records current implementation progress and environment state. It is d
   - PendingEmail Patient returned `403 Forbidden`
   - wrong password returned `401 Unauthorized`
   - unknown email returned `401 Unauthorized`
+- Implemented Admin-created Doctor account MVP:
+  - `POST /api/admin/doctors` creates Doctor accounts through a thin Admin controller endpoint
+  - new Doctor users are assigned the seeded `Doctor` role
+  - new Doctor users are created with `Status = PendingPasswordSetup`
+  - new Doctor users are created with `EmailConfirmed = true` because the account is admin-created and uses invitation password setup
+  - `PasswordHash` remains `null` until the invitation password setup flow is completed
+  - a `DoctorProfile` is created with the selected `SpecialtyId`, optional bio, and the default commission rate from `SystemSettings`
+  - a `DoctorInvitation` token is generated, expires after 72 hours, and is single-use through `UsedAt`
+  - only the deterministic token hash is stored in `UserTokens`
+  - an `EmailLog` is created for the doctor invitation and marked by the placeholder email sender path
+  - an `AuditLog` entry is created for doctor account creation
+  - Development responses include `invitationToken` and `passwordSetupUrl` for Swagger testing
+  - Production responses do not expose the raw invitation token
+- Corrected Login status handling so `PendingPasswordSetup` accounts are blocked with `403 Forbidden` before password verification. This keeps admin-created Doctor accounts from normal login until the invitation password setup flow exists.
+- Added unit test coverage for `PendingPasswordSetup` login blocking.
+- Verified the Admin-created Doctor endpoint against `RehabAIDb`:
+  - create Doctor returned `200 OK`
+  - duplicate Doctor email returned `409 Conflict`
+  - SQL confirmed the created user has the `Doctor` role
+  - SQL confirmed the created user has `Status = PendingPasswordSetup`
+  - SQL confirmed `DoctorProfile` was created
+  - SQL confirmed a `DoctorInvitation` `UserToken` exists
+  - SQL confirmed the raw invitation token is not stored in `UserTokens.TokenHash`
+  - SQL confirmed an account creation `AuditLog` exists
+  - normal login for the pending Doctor returned `403 Forbidden`
+- Implemented Doctor invitation password setup MVP:
+  - `POST /api/auth/setup-doctor-password` accepts email, invitation token, and initial password
+  - setup requires a matching `DoctorInvitation` token for the provided email/user
+  - the incoming raw token is hashed with `SecureTokenService.HashToken` before comparison
+  - token hash comparison uses the existing secure token comparison path
+  - raw invitation tokens are still never stored in `UserTokens`
+  - used invitation tokens return `409 Conflict`
+  - invalid invitation tokens return `400 Bad Request`
+  - expired invitation tokens return `410 Gone`
+  - successful setup hashes the password with the existing PBKDF2 password hasher
+  - successful setup sets `Users.Status = Active`
+  - successful setup sets `UserTokens.UsedAt`
+  - Doctors can log in normally after successful password setup
+- Added unit tests for Doctor invitation password setup:
+  - valid token activates the Doctor account
+  - reused token maps to `409 Conflict`
+  - invalid token maps to `400 Bad Request`
+  - expired token maps to `410 Gone`
+- Verified the Doctor invitation password setup endpoint against `RehabAIDb`:
+  - valid invitation token returned `200 OK`
+  - reused invitation token returned `409 Conflict`
+  - invalid invitation token returned `400 Bad Request`
+  - expired invitation token returned `410 Gone`
+  - SQL confirmed password hash is present after setup
+  - SQL confirmed user status changed to `Active`
+  - SQL confirmed invitation token is marked used
+  - login after password setup returned `200 OK` with the `Doctor` role and access token
+- Implemented Medical Services CRUD MVP:
+  - public `GET /api/medical-services` returns active, non-deleted medical services only
+  - public `GET /api/medical-services/{id}` returns only active, non-deleted services
+  - admin `POST /api/admin/medical-services` creates a medical service
+  - admin `PUT /api/admin/medical-services/{id}` updates a non-deleted medical service
+  - admin `DELETE /api/admin/medical-services/{id}` soft deletes a service by setting `IsDeleted = true` and `IsActive = false`
+  - create/update validation requires name, positive duration, non-negative price, and non-negative or null no-show fee amount
+  - missing or blank currency defaults to `VND`
+  - create defaults `IsActive = true` when `isActive` is omitted
+  - update continues to use the provided `isActive` value
+  - no appointment booking, doctor scheduling, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Fixed Medical Services create default active behavior:
+  - `POST /api/admin/medical-services` now treats omitted `isActive` as active by default
+  - `PUT /api/admin/medical-services/{id}` behavior is unchanged and still respects the provided `isActive` value
+  - no database schema or migration changes were made
+- Added unit tests for Medical Services Application logic:
+  - valid create defaults missing currency to `VND`
+  - invalid name, duration, price, and no-show fee amount return validation failures
+  - update of a missing service returns not found
+  - soft delete of an existing service returns success
+- Added unit tests for Medical Services API request behavior:
+  - create without `isActive` defaults to active
+  - update with `isActive = false` remains false
+- Verified the Medical Services endpoints against `RehabAIDb`:
+  - create medical service returned success
+  - public list included the active service before delete
+  - public get by id returned the active service
+  - update changed service values and defaulted blank currency to `VND`
+  - delete returned success
+  - public list no longer included the deleted service
+  - public get by id after delete returned `404 Not Found`
+  - SQL confirmed the deleted service has `IsActive = 0` and `IsDeleted = 1`
 
-## 4. Current Connection
+## 5. Current Connection
 
 The current connection string is stored in:
 
@@ -197,33 +365,104 @@ JWT settings are stored in:
 src/RehabAI.Api/appsettings.json
 ```
 
-## 5. Next Recommended Steps
+Admin-created Doctor implementation files:
 
-- Verify seeded records in SQL Server Management Studio by expanding `RehabAIDb` and checking `Roles`, `Specialties`, `SubscriptionPlans`, and `SystemSettings`.
-- Continue implementing application services/use cases in small MVP slices:
-  - add focused automated tests for Patient registration validation, duplicate email handling, token storage, and EmailLog status
-  - wire JWT bearer authentication middleware and authorization policies for protected endpoints
-  - admin-created doctor account flow
-  - doctor profile and credential metadata
-  - medical services and doctor schedule slots
-  - appointment booking
-  - commerce order/payment flow
-- Add tests around critical flows before expanding features:
-  - Patient registration validation, duplicate email handling, token storage, and EmailLog status
-  - token usage and email verification
-  - appointment slot reservation
-  - payment webhook idempotency
-  - account status access rules
+```text
+src/RehabAI.Api/Controllers/AdminController.cs
+src/RehabAI.Api/Contracts/Doctors/CreateDoctorRequest.cs
+src/RehabAI.Application/Doctors/DoctorContracts.cs
+src/RehabAI.Application/Doctors/DoctorService.cs
+src/RehabAI.Infrastructure/Doctors/EfDoctorAccountRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/Auth/LoginTests.cs
+```
 
-## 6. Known Risks
+Admin-created Doctor endpoint:
+
+```text
+POST /api/admin/doctors
+```
+
+When the API environment is `Development`, a successful response includes:
+
+```text
+invitationToken
+passwordSetupUrl
+```
+
+These fields must not be exposed in Production.
+
+Doctor invitation password setup endpoint:
+
+```text
+POST /api/auth/setup-doctor-password
+```
+
+Doctor invitation password setup implementation files:
+
+```text
+src/RehabAI.Api/Controllers/AuthController.cs
+src/RehabAI.Api/Contracts/Auth/RegisterPatientRequest.cs
+src/RehabAI.Application/Auth/AuthContracts.cs
+src/RehabAI.Application/Auth/AuthService.cs
+src/RehabAI.Infrastructure/Auth/EfPatientRegistrationRepository.cs
+tests/RehabAI.UnitTests/Auth/DoctorPasswordSetupTests.cs
+```
+
+Medical Services implementation files:
+
+```text
+src/RehabAI.Api/Controllers/MedicalServicesController.cs
+src/RehabAI.Api/Controllers/AdminController.cs
+src/RehabAI.Api/Contracts/MedicalServices/MedicalServiceRequests.cs
+src/RehabAI.Application/MedicalServices/MedicalServiceContracts.cs
+src/RehabAI.Application/MedicalServices/MedicalServiceManager.cs
+src/RehabAI.Infrastructure/MedicalServices/EfMedicalServiceRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/MedicalServices/MedicalServiceManagerTests.cs
+```
+
+Medical Services endpoints:
+
+```text
+GET /api/medical-services
+GET /api/medical-services/{id}
+POST /api/admin/medical-services
+PUT /api/admin/medical-services/{id}
+DELETE /api/admin/medical-services/{id}
+```
+
+## 6. Git/Branch State
+
+- Current working branch: `Test`.
+- Recent completed features should be committed and pushed to `origin/Test`.
+- The working tree currently contains uncommitted feature/documentation changes.
+- `main` will not show the latest changes until branch `Test` is merged into `main` through a Pull Request.
+
+## 7. Next Recommended Steps
+
+1. Commit/push any uncommitted changes to `origin/Test`.
+2. Medical Services CRUD MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set. If working from an older checkpoint without these local changes, implement Medical Services CRUD MVP before schedule work.
+3. Implement Doctor Schedule Slots.
+4. Implement public/searchable Doctor listing based on `Active` + `PublicProfileApproved` + future `Available` slot.
+5. Implement Appointment Booking MVP.
+6. Payment/webhook and commerce can come after appointment core.
+7. AI/subscription quota is handled by another team and should not be implemented unless assigned.
+
+## 8. Known Risks
 
 - `docs/database-design.md` still describes the database as a pre-migration design, while the initial migration has now been created and applied. Future documentation updates should keep design and implementation state clearly separated.
 - The current database is an initial development database. Future schema changes should be made through new EF Core migrations, not manual SQL edits.
 - Seed data is currently inserted at API startup. The seed logic is idempotent, but production deployment should decide whether startup seeding remains acceptable or moves to an explicit deployment/admin initialization step.
 - Payment finalization rules depend on verified webhook handling, which still needs implementation.
-- Password reset and doctor invitation completion flows still need implementation.
+- Password reset still needs implementation.
 - The verification email currently uses the placeholder email sender and includes a raw token in placeholder email content. A real frontend verification URL and production email provider are still needed.
 - Development registration responses intentionally expose the raw verification token for Swagger testing only. Production behavior was checked to avoid exposing token helper fields.
+- Development Doctor creation responses intentionally expose the raw invitation token for Swagger testing only. Production behavior must continue to avoid exposing invitation token helper fields.
+- `POST /api/admin/doctors` is implemented but not yet protected by an Admin-only authorization policy because bearer authentication/authorization enforcement is still a future slice.
+- Medical Services admin endpoints are implemented but not yet protected by an Admin-only authorization policy because bearer authentication/authorization enforcement is still a future slice.
+- `CreateDoctorRequest.YearsOfExperience` is accepted for API compatibility with the current request shape, but it is not persisted because the current `DoctorProfile` schema does not include a `YearsOfExperience` column and this task did not change schema or create a migration.
+- Doctor invitation password setup is implemented, but the real frontend setup page and production email URL are still needed.
 - Email verification now has unit coverage for valid, invalid, expired, and reused token paths. Broader integration tests against EF Core should still be added before production hardening.
 - JWT generation currently uses minimal local HMAC-SHA256 infrastructure. Production deployments must override the development signing key and should wire full bearer authentication/authorization validation before protecting real endpoints.
 - AI chat quota and guest-to-patient session linking are represented in the schema but still need application-layer enforcement.

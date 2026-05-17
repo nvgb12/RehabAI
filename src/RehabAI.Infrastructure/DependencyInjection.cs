@@ -3,12 +3,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RehabAI.Application.Auth;
 using RehabAI.Application.Chatbot;
+using RehabAI.Application.Doctors;
 using RehabAI.Application.Emails;
+using RehabAI.Application.MedicalServices;
 using RehabAI.Application.Payments;
 using RehabAI.Infrastructure.Ai;
 using RehabAI.Infrastructure.Auth;
 using RehabAI.Infrastructure.Database;
+using RehabAI.Infrastructure.Doctors;
 using RehabAI.Infrastructure.Email;
+using RehabAI.Infrastructure.MedicalServices;
 using RehabAI.Infrastructure.Payment;
 
 namespace RehabAI.Infrastructure;
@@ -21,8 +25,12 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IDoctorService, DoctorService>();
+        services.AddScoped<IMedicalServiceManager, MedicalServiceManager>();
         services.AddScoped<IPatientRegistrationRepository, EfPatientRegistrationRepository>();
         services.AddScoped<IUserAuthenticationRepository, EfPatientRegistrationRepository>();
+        services.AddScoped<IDoctorAccountRepository, EfDoctorAccountRepository>();
+        services.AddScoped<IMedicalServiceRepository, EfMedicalServiceRepository>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<ISecureTokenService, SecureTokenService>();
         services.AddSingleton<IJwtTokenService, JwtTokenService>();

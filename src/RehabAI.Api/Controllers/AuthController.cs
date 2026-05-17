@@ -99,6 +99,30 @@ public class AuthController(IAuthService authService, IHostEnvironment hostEnvir
         };
     }
 
+    [HttpPost("setup-doctor-password")]
+    public async Task<IActionResult> SetupDoctorPassword(SetupDoctorPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var result = await authService.SetupDoctorPasswordAsync(
+            new SetupDoctorPasswordCommand(request.Email, request.Token, request.Password),
+            cancellationToken);
+
+        if (result.Succeeded)
+        {
+            return Ok(new
+            {
+                message = result.Message,
+                email = result.Email
+            });
+        }
+
+        return result.FailureReason switch
+        {
+            SetupDoctorPasswordFailureReason.ExpiredToken => StatusCode(StatusCodes.Status410Gone, new { message = result.Message, email = result.Email }),
+            SetupDoctorPasswordFailureReason.UsedToken => Conflict(new { message = result.Message, email = result.Email }),
+            _ => BadRequest(new { message = result.Message, email = result.Email })
+        };
+    }
+
     [HttpPost("forgot-password")]
     public IActionResult ForgotPassword(ForgotPasswordRequest request)
     {

@@ -56,6 +56,28 @@ public class LoginTests
     }
 
     [Fact]
+    public async Task Login_WithPendingPasswordSetupDoctor_Returns403BeforePasswordVerification()
+    {
+        var repository = new FakeAuthRepository
+        {
+            User = new UserAuthenticationRecord(
+                Guid.NewGuid(),
+                "doctor@example.com",
+                "Doctor Example",
+                null,
+                (int)AccountStatus.PendingPasswordSetup,
+                ["Doctor"])
+        };
+        var controller = CreateController(repository);
+
+        var response = await controller.Login(new LoginRequest("doctor@example.com", "Password@123"), CancellationToken.None);
+        var objectResult = Assert.IsType<ObjectResult>(response);
+
+        Assert.Equal(403, objectResult.StatusCode);
+        Assert.Contains("doctor invitation password setup flow", objectResult.Value!.ToString());
+    }
+
+    [Fact]
     public async Task Login_WithWrongPassword_Returns401()
     {
         var repository = new FakeAuthRepository
@@ -129,6 +151,22 @@ public class LoginTests
         }
 
         public Task CompleteEmailVerificationAsync(Guid userId, Guid tokenId, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<DoctorInvitationTokenRecord>> GetDoctorInvitationTokensAsync(
+            string normalizedEmail,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<DoctorInvitationTokenRecord>>([]);
+        }
+
+        public Task CompleteDoctorPasswordSetupAsync(
+            Guid userId,
+            Guid tokenId,
+            string passwordHash,
+            CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }

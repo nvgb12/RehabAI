@@ -160,9 +160,7 @@ public sealed class AuthService(
         var email = NormalizeEmail(command.Email);
         var user = await authenticationRepository.GetUserForLoginAsync(email, cancellationToken);
 
-        if (user is null ||
-            string.IsNullOrWhiteSpace(user.PasswordHash) ||
-            !passwordHasher.VerifyPassword(command.Password, user.PasswordHash))
+        if (user is null)
         {
             return new LoginResult(
                 false,
@@ -186,6 +184,16 @@ public sealed class AuthService(
                 FailureReason: LoginFailureReason.AccountBlocked);
         }
 
+        if (string.IsNullOrWhiteSpace(user.PasswordHash) ||
+            !passwordHasher.VerifyPassword(command.Password, user.PasswordHash))
+        {
+            return new LoginResult(
+                false,
+                "Email or password is incorrect.",
+                Email: email,
+                FailureReason: LoginFailureReason.InvalidCredentials);
+        }
+
         var accessToken = jwtTokenService.CreateAccessToken(user);
 
         return new LoginResult(
@@ -196,6 +204,65 @@ public sealed class AuthService(
             user.FullName,
             user.Roles,
             accessToken);
+    }
+
+    public async Task<SetupDoctorPasswordResult> SetupDoctorPasswordAsync(
+        SetupDoctorPasswordCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var validationMessage = ValidateSetupDoctorPasswordCommand(command);
+
+        if (validationMessage is not null)
+        {
+            return new SetupDoctorPasswordResult(false, validationMessage, FailureReason: SetupDoctorPasswordFailureReason.Validation);
+        }
+
+        var email = NormalizeEmail(command.Email);
+        var tokenHash = tokenService.HashToken(command.Token.Trim());
+        var tokenRecords = await registrationRepository.GetDoctorInvitationTokensAsync(email, cancellationToken);
+        var tokenRecord = tokenRecords.SingleOrDefault(record => tokenService.TokenHashesEqual(tokenHash, record.TokenHash));
+
+        if (tokenRecord is null)
+        {
+            return new SetupDoctorPasswordResult(
+                false,
+                "Doctor invitation token is invalid.",
+                Email: email,
+                FailureReason: SetupDoctorPasswordFailureReason.InvalidToken);
+        }
+
+        if (tokenRecord.UsedAt is not null)
+        {
+            return new SetupDoctorPasswordResult(
+                false,
+                "Doctor invitation token has already been used.",
+                tokenRecord.UserId,
+                email,
+                SetupDoctorPasswordFailureReason.UsedToken);
+        }
+
+        if (tokenRecord.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return new SetupDoctorPasswordResult(
+                false,
+                "Doctor invitation token has expired.",
+                tokenRecord.UserId,
+                email,
+                SetupDoctorPasswordFailureReason.ExpiredToken);
+        }
+
+        var passwordHash = passwordHasher.HashPassword(command.Password);
+        await registrationRepository.CompleteDoctorPasswordSetupAsync(
+            tokenRecord.UserId,
+            tokenRecord.TokenId,
+            passwordHash,
+            cancellationToken);
+
+        return new SetupDoctorPasswordResult(
+            true,
+            "Password setup completed. Doctor account is now active.",
+            tokenRecord.UserId,
+            email);
     }
 
     public Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default)
@@ -248,6 +315,26 @@ public sealed class AuthService(
         if (string.IsNullOrWhiteSpace(command.Email) || !IsValidEmail(command.Email))
         {
             return "A valid email is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Password))
+        {
+            return "Password is required.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateSetupDoctorPasswordCommand(SetupDoctorPasswordCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.Email) || !IsValidEmail(command.Email))
+        {
+            return "A valid email is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Token))
+        {
+            return "Doctor invitation token is required.";
         }
 
         if (string.IsNullOrWhiteSpace(command.Password))
