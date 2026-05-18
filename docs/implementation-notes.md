@@ -19,6 +19,9 @@ This file records current implementation progress and environment state. It is d
 - Admin-created Doctor account MVP has been implemented. Doctors do not self-register in the current implementation.
 - Doctor invitation password setup MVP has been implemented.
 - Medical Services CRUD MVP has been implemented.
+- Doctor Schedule Slots MVP has been implemented according to UC-14 Manage Doctor Schedule.
+- Public/Searchable Doctor Listing MVP has been implemented.
+- Appointment Booking MVP has been implemented.
 
 ## 2. Current Completed MVP Features
 
@@ -100,6 +103,48 @@ This file records current implementation progress and environment state. It is d
   - Update keeps respecting the provided `isActive` value.
   - Deleted/inactive services do not appear in public active lists.
   - Flow has been tested with Swagger-style HTTP calls and SQL Server Management Studio.
+- Doctor Schedule Slots MVP:
+  - Endpoint: `GET /api/doctors/{doctorProfileId}/schedule-slots`.
+  - Endpoint: `GET /api/doctors/{doctorProfileId}/available-slots`.
+  - Endpoint: `POST /api/doctors/{doctorProfileId}/schedule-slots`.
+  - Endpoint: `PUT /api/doctors/{doctorProfileId}/schedule-slots/{slotId}`.
+  - Endpoint: `DELETE /api/doctors/{doctorProfileId}/schedule-slots/{slotId}`.
+  - New manually created slots default to `Available`.
+  - Slot validation requires an existing `DoctorProfile`.
+  - Slot validation requires the linked user to have the `Doctor` role and `Active` status.
+  - Slot validation requires `StartTime < EndTime`.
+  - Slot validation requires `StartTime` to be in the future.
+  - Overlapping non-deleted, non-disabled slots for the same DoctorProfile are rejected with conflict.
+  - Slots with active appointments cannot be modified or disabled.
+  - `DELETE` disables the slot by setting `Status = Disabled`; it does not physically delete the record.
+  - Disabled slots do not appear in public available-slot results.
+- Public/Searchable Doctor Listing MVP:
+  - Endpoint: `GET /api/doctors`.
+  - Endpoint: `GET /api/doctors/{doctorProfileId}`.
+  - Guests and Patients can browse/search public bookable Doctors.
+  - Public listing returns only Doctors whose linked user is `Active`, has the `Doctor` role, has `DoctorProfile.PublicProfileApproved = true`, has a non-deleted profile, and has at least one future `Available` schedule slot.
+  - Doctors with `PendingPasswordSetup`, `PendingEmail`, `Locked`, `Suspended`, `Deactivated`, deleted profiles, no future available slot, or only disabled/booked/soft-reserved/past slots are excluded.
+  - Optional filters are supported for `keyword`, `specialtyId`, `availableFrom`, and `availableTo`.
+  - Public detail returns only if the Doctor is publicly bookable.
+- Appointment Booking MVP:
+  - Endpoint: `POST /api/appointments`.
+  - Endpoint: `GET /api/appointments/{appointmentId}`.
+  - Endpoint: `GET /api/patients/{patientProfileId}/appointments`.
+  - `POST /api/appointments` accepts the appointment request as a direct JSON body, not wrapped inside a `request` object.
+  - `CreateAppointmentRequest` exposes direct GUID fields for `patientProfileId`, `doctorProfileId`, `medicalServiceId`, and `scheduleSlotId`, plus optional `reason`.
+  - Active Patients can book appointments with public bookable Doctors.
+  - Create request uses `patientProfileId`; the implementation maps it to `Appointments.PatientId = Users.Id` according to the current schema.
+  - Booking requires an active Patient account with the `Patient` role.
+  - Booking requires a public bookable Doctor profile.
+  - Booking requires an active, non-deleted Medical Service.
+  - Booking requires a future, non-deleted, `Available` schedule slot belonging to the selected DoctorProfile.
+  - Successful booking creates an `Appointment` with `Status = PendingPayment`.
+  - Successful booking changes the schedule slot to `SoftReserved`.
+  - Successful booking sets both `Appointment.SoftReservedUntil` and `DoctorScheduleSlots.ReservedUntil`.
+  - Soft reservation duration uses `SystemSettings.Appointment.SoftReserveMinutes` when available, otherwise defaults to 10 minutes.
+  - Appointment creation and slot update run in a database transaction.
+  - Booking the same slot again returns `409 Conflict` with `Schedule slot is not available for booking.`
+  - Manual Swagger and SQL Server verification confirmed appointment booking works for stroke rehabilitation scenarios such as `Post-stroke rehabilitation consultation`.
 
 ## 3. Database Setup
 
@@ -287,6 +332,89 @@ This file records current implementation progress and environment state. It is d
   - public list no longer included the deleted service
   - public get by id after delete returned `404 Not Found`
   - SQL confirmed the deleted service has `IsActive = 0` and `IsDeleted = 1`
+- Implemented Doctor Schedule Slots MVP:
+  - `GET /api/doctors/{doctorProfileId}/schedule-slots` lists non-deleted slots for a DoctorProfile
+  - `GET /api/doctors/{doctorProfileId}/available-slots` lists future `Available` slots only
+  - `POST /api/doctors/{doctorProfileId}/schedule-slots` creates a future slot with default `Status = Available`
+  - `PUT /api/doctors/{doctorProfileId}/schedule-slots/{slotId}` updates slot time/status
+  - `DELETE /api/doctors/{doctorProfileId}/schedule-slots/{slotId}` disables the slot instead of physically deleting it
+  - Application-layer validation checks DoctorProfile existence, linked Doctor role, active linked user, valid future time range, overlap conflicts, and active appointment guards
+  - No appointment booking, payment, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Doctor Schedule Slots:
+  - valid future slot creates an `Available` slot
+  - invalid time returns validation failure
+  - overlapping slot returns conflict
+  - update succeeds for a valid slot
+  - disabling a slot with active appointments returns conflict
+  - valid disable marks the slot as `Disabled`
+  - disabled slot is excluded from available slots
+- Verified the Doctor Schedule Slots endpoints against `RehabAIDb` through Swagger-style HTTP calls:
+  - create available slot succeeded
+  - list doctor's slots succeeded
+  - list available slots succeeded
+  - overlapping slot returned `409 Conflict`
+  - invalid time returned `400 Bad Request`
+  - update slot succeeded
+  - disable slot succeeded
+  - disabled slot did not appear in available slots
+- Implemented Public/Searchable Doctor Listing MVP:
+  - `GET /api/doctors` returns public bookable Doctor summaries
+  - `GET /api/doctors/{doctorProfileId}` returns public Doctor detail only when the Doctor is publicly bookable
+  - response includes `doctorProfileId`, `userId`, `fullName`, `specialtyId`, `specialtyName`, `bio`, `avatarUrl`, `nextAvailableSlotStartTime`, and `nextAvailableSlotEndTime`
+  - public eligibility requires linked `Users.Status = Active`, Doctor role, `DoctorProfiles.PublicProfileApproved = true`, non-deleted profile, and at least one future `Available` schedule slot
+  - `keyword` filter searches Doctor full name and bio
+  - `specialtyId` filter restricts results by specialty
+  - `availableFrom` and `availableTo` restrict the next available slot window
+  - disabled, booked, soft-reserved, deleted, and past slots do not count as available
+  - no appointment booking, payment, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Public Doctor Listing Application logic:
+  - valid search returns public Doctor summaries
+  - invalid availability range returns validation failure
+  - empty detail id returns null without repository access
+  - valid detail id maps repository result to response
+- Verified the Public/Searchable Doctor Listing endpoints against `RehabAIDb` through Swagger-style HTTP calls:
+  - active Doctor with `PublicProfileApproved = true` and a future `Available` slot appeared
+  - active Doctor with `PublicProfileApproved = false` did not appear
+  - Doctor with disabled slot only did not appear
+  - `keyword` filter matched the public Doctor
+  - `specialtyId` filter matched the public Doctor
+  - `availableFrom`/`availableTo` filter matched the public Doctor
+  - public Doctor detail returned `200 OK`
+  - non-public and non-bookable Doctor detail returned `404 Not Found`
+- Implemented Appointment Booking MVP:
+  - `POST /api/appointments` creates an appointment from `patientProfileId`, `doctorProfileId`, `medicalServiceId`, and `scheduleSlotId`
+  - `POST /api/appointments` now explicitly binds `CreateAppointmentRequest` from the JSON request body through `[FromBody]`
+  - `CreateAppointmentRequest` is a direct request DTO with `Guid PatientProfileId`, `Guid DoctorProfileId`, `Guid MedicalServiceId`, `Guid ScheduleSlotId`, and optional `Reason`
+  - `GET /api/appointments/{appointmentId}` returns appointment detail
+  - `GET /api/patients/{patientProfileId}/appointments` returns appointments for the Patient profile
+  - create validates active Patient account and Patient role
+  - create validates public bookable Doctor profile
+  - create validates active/non-deleted Medical Service
+  - create validates the selected slot belongs to the DoctorProfile, is in the future, is not deleted, and is `Available`
+  - create prevents double booking by checking active appointments for the selected slot inside the transaction
+  - create stores `Appointment.Status = PendingPayment`
+  - create stores appointment time snapshots from the selected schedule slot
+  - create changes `DoctorScheduleSlots.Status` to `SoftReserved`
+  - create sets `DoctorScheduleSlots.ReservedUntil` and `Appointments.SoftReservedUntil`
+  - create uses `SystemSettings.Appointment.SoftReserveMinutes`, with a 10 minute fallback
+  - no payment capture, gateway, webhook, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Appointment Booking Application logic:
+  - valid booking creates a `PendingPayment` appointment
+  - inactive Patient is rejected
+  - non-public Doctor is rejected
+  - unavailable slot returns conflict reason
+  - double-booked slot returns conflict reason
+  - Patient appointment list returns created appointments
+- Verified the Appointment Booking endpoints against `RehabAIDb` through Swagger-style HTTP calls:
+  - `POST /api/appointments` created an appointment successfully
+  - created appointment status was `PendingPayment`
+  - appointment record was persisted in the `Appointments` table
+  - related `DoctorScheduleSlots.Status` changed to `SoftReserved` / `Status = 2`
+  - `ReservedUntil` was set
+  - duplicate booking for the same slot returned `409 Conflict` with `Schedule slot is not available for booking.`
+  - `GET /api/appointments/{appointmentId}` returned the created appointment
+  - `GET /api/patients/{patientProfileId}/appointments` returned the Patient's appointment list
+  - test reason used stroke rehabilitation wording: `Post-stroke rehabilitation consultation`
 
 ## 5. Current Connection
 
@@ -432,6 +560,88 @@ PUT /api/admin/medical-services/{id}
 DELETE /api/admin/medical-services/{id}
 ```
 
+Doctor Schedule Slots implementation files:
+
+```text
+src/RehabAI.Api/Controllers/DoctorsController.cs
+src/RehabAI.Api/Contracts/Doctors/ScheduleSlotRequests.cs
+src/RehabAI.Application/DoctorSchedules/DoctorScheduleContracts.cs
+src/RehabAI.Application/DoctorSchedules/DoctorScheduleSlotService.cs
+src/RehabAI.Infrastructure/DoctorSchedules/EfDoctorScheduleSlotRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/DoctorSchedules/DoctorScheduleSlotServiceTests.cs
+```
+
+Doctor Schedule Slots endpoints:
+
+```text
+GET /api/doctors/{doctorProfileId}/schedule-slots
+GET /api/doctors/{doctorProfileId}/available-slots
+POST /api/doctors/{doctorProfileId}/schedule-slots
+PUT /api/doctors/{doctorProfileId}/schedule-slots/{slotId}
+DELETE /api/doctors/{doctorProfileId}/schedule-slots/{slotId}
+```
+
+Public/Searchable Doctor Listing implementation files:
+
+```text
+src/RehabAI.Api/Controllers/DoctorsController.cs
+src/RehabAI.Application/Doctors/PublicDoctorContracts.cs
+src/RehabAI.Application/Doctors/PublicDoctorListingService.cs
+src/RehabAI.Infrastructure/Doctors/EfPublicDoctorListingRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/Doctors/PublicDoctorListingServiceTests.cs
+```
+
+Public/Searchable Doctor Listing endpoints:
+
+```text
+GET /api/doctors
+GET /api/doctors/{doctorProfileId}
+```
+
+Supported query filters:
+
+```text
+keyword
+specialtyId
+availableFrom
+availableTo
+```
+
+Appointment Booking implementation files:
+
+```text
+src/RehabAI.Api/Controllers/AppointmentsController.cs
+src/RehabAI.Api/Contracts/Appointments/AppointmentRequests.cs
+src/RehabAI.Api/Controllers/CoreUseCasesController.cs
+src/RehabAI.Application/Appointments/AppointmentContracts.cs
+src/RehabAI.Application/Appointments/AppointmentBookingService.cs
+src/RehabAI.Infrastructure/Appointments/EfAppointmentBookingRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/Appointments/AppointmentBookingServiceTests.cs
+```
+
+Appointment Booking endpoints:
+
+```text
+POST /api/appointments
+GET /api/appointments/{appointmentId}
+GET /api/patients/{patientProfileId}/appointments
+```
+
+Direct appointment booking request body:
+
+```json
+{
+  "patientProfileId": "guid",
+  "doctorProfileId": "guid",
+  "medicalServiceId": "guid",
+  "scheduleSlotId": "guid",
+  "reason": "Post-stroke rehabilitation consultation"
+}
+```
+
 ## 6. Git/Branch State
 
 - Current working branch: `Test`.
@@ -443,10 +653,10 @@ DELETE /api/admin/medical-services/{id}
 
 1. Commit/push any uncommitted changes to `origin/Test`.
 2. Medical Services CRUD MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set. If working from an older checkpoint without these local changes, implement Medical Services CRUD MVP before schedule work.
-3. Implement Doctor Schedule Slots.
-4. Implement public/searchable Doctor listing based on `Active` + `PublicProfileApproved` + future `Available` slot.
-5. Implement Appointment Booking MVP.
-6. Payment/webhook and commerce can come after appointment core.
+3. Doctor Schedule Slots MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
+4. Public/Searchable Doctor Listing MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
+5. Appointment Booking MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
+6. Implement appointment payment initialization and verified payment webhook handling.
 7. AI/subscription quota is handled by another team and should not be implemented unless assigned.
 
 ## 8. Known Risks
@@ -461,6 +671,13 @@ DELETE /api/admin/medical-services/{id}
 - Development Doctor creation responses intentionally expose the raw invitation token for Swagger testing only. Production behavior must continue to avoid exposing invitation token helper fields.
 - `POST /api/admin/doctors` is implemented but not yet protected by an Admin-only authorization policy because bearer authentication/authorization enforcement is still a future slice.
 - Medical Services admin endpoints are implemented but not yet protected by an Admin-only authorization policy because bearer authentication/authorization enforcement is still a future slice.
+- Doctor Schedule Slots endpoints are implemented but not yet protected by Doctor/authorized Staff authorization policies because bearer authentication/authorization enforcement is still a future slice.
+- Doctor Schedule Slots currently guard against active appointments during update/disable, but appointment booking/rescheduling workflows are not implemented yet.
+- Public Doctor listing is intentionally unauthenticated for Guests and Patients, but Admin-only profile approval management is not implemented yet.
+- Appointment Booking now moves slots to `SoftReserved`; payment webhook handling still needs to move successful appointments to `Pending` or `Confirmed` and slots to `Booked`.
+- Pending payment expiration is not implemented yet; expired appointments still need a background job or command to return slots to `Available` and clear `ReservedUntil`.
+- Appointment Booking endpoints are implemented but not yet protected by authenticated Patient authorization policy because bearer authentication/authorization enforcement is still a future slice.
+- Appointment Booking request IDs must be valid GUID strings. Invalid GUID input, such as a copied `scheduleSlotId` with a missing character, is rejected by ASP.NET Core model binding before appointment business rules run.
 - `CreateDoctorRequest.YearsOfExperience` is accepted for API compatibility with the current request shape, but it is not persisted because the current `DoctorProfile` schema does not include a `YearsOfExperience` column and this task did not change schema or create a migration.
 - Doctor invitation password setup is implemented, but the real frontend setup page and production email URL are still needed.
 - Email verification now has unit coverage for valid, invalid, expired, and reused token paths. Broader integration tests against EF Core should still be added before production hardening.
