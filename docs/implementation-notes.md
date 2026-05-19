@@ -22,6 +22,9 @@ This file records current implementation progress and environment state. It is d
 - Doctor Schedule Slots MVP has been implemented according to UC-14 Manage Doctor Schedule.
 - Public/Searchable Doctor Listing MVP has been implemented.
 - Appointment Booking MVP has been implemented.
+- Payment Confirmation Placeholder MVP has been implemented for appointment web-flow testing without a real payment gateway.
+- Appointment Cancellation MVP has been implemented for cancelling booked or payment-pending appointments.
+- Patient Profile Management MVP has been implemented for viewing and updating existing Patient profile fields.
 
 ## 2. Current Completed MVP Features
 
@@ -61,6 +64,15 @@ This file records current implementation progress and environment state. It is d
   - In Development only, `register-patient` returns raw verification token/setup helper info for Swagger testing.
   - Production must not expose raw tokens.
   - Flow has been tested with Swagger and SQL Server Management Studio.
+- Patient Profile Management MVP:
+  - Endpoint: `GET /api/patients/{patientProfileId}/profile`.
+  - Endpoint: `PUT /api/patients/{patientProfileId}/profile`.
+  - Uses the existing `PatientProfiles` table/model.
+  - Profile detail returns safe profile/account fields only: `patientProfileId`, `userId`, `fullName`, `email`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
+  - Profile detail does not expose `PasswordHash` or sensitive authentication data.
+  - Update supports existing schema fields: `dateOfBirth`, `gender`, and `address`.
+  - Missing or deleted Patient profiles return `404 Not Found`.
+  - Stroke-specific rehabilitation notes or condition notes are not in the current schema and should be added through a future migration if assigned.
 - Login MVP:
   - Endpoint: `POST /api/Auth/login`.
   - Login uses email and password.
@@ -128,6 +140,8 @@ This file records current implementation progress and environment state. It is d
   - Public detail returns only if the Doctor is publicly bookable.
 - Appointment Booking MVP:
   - Endpoint: `POST /api/appointments`.
+  - Endpoint: `POST /api/appointments/{appointmentId}/confirm-payment`.
+  - Endpoint: `POST /api/appointments/{appointmentId}/cancel`.
   - Endpoint: `GET /api/appointments/{appointmentId}`.
   - Endpoint: `GET /api/patients/{patientProfileId}/appointments`.
   - `POST /api/appointments` accepts the appointment request as a direct JSON body, not wrapped inside a `request` object.
@@ -145,6 +159,29 @@ This file records current implementation progress and environment state. It is d
   - Appointment creation and slot update run in a database transaction.
   - Booking the same slot again returns `409 Conflict` with `Schedule slot is not available for booking.`
   - Manual Swagger and SQL Server verification confirmed appointment booking works for stroke rehabilitation scenarios such as `Post-stroke rehabilitation consultation`.
+- Payment Confirmation Placeholder MVP:
+  - Endpoint: `POST /api/appointments/{appointmentId}/confirm-payment`.
+  - This endpoint is a mock/payment placeholder for local web-flow testing only.
+  - It does not integrate a real payment gateway.
+  - It does not create payment provider sessions, process webhooks, commission, refunds, or payouts.
+  - Only appointments with `Status = PendingPayment` can be confirmed through this placeholder.
+  - Missing appointments return `404 Not Found`.
+  - Appointments that are not `PendingPayment` return `409 Conflict`.
+  - Successful confirmation sets `Appointments.Status = Confirmed`.
+  - Successful confirmation sets the related `DoctorScheduleSlots.Status = Booked`.
+  - Successful confirmation clears `Appointments.SoftReservedUntil` and `DoctorScheduleSlots.ReservedUntil` because the slot is no longer temporarily reserved after it becomes booked.
+- Appointment Cancellation MVP:
+  - Endpoint: `POST /api/appointments/{appointmentId}/cancel`.
+  - Request body includes `cancellationReason`.
+  - Missing or deleted appointments return `404 Not Found`.
+  - Already cancelled appointments return `409 Conflict`.
+  - `PendingPayment` and `Confirmed` appointments can be cancelled.
+  - Successful cancellation sets `Appointments.Status = Cancelled`.
+  - Successful cancellation stores `Appointments.CancellationReason`.
+  - Successful cancellation clears `Appointments.SoftReservedUntil`.
+  - If the related Doctor schedule slot is `SoftReserved` or `Booked`, successful cancellation releases it back to `Available`.
+  - Successful cancellation clears `DoctorScheduleSlots.ReservedUntil`.
+  - Refund logic, real payment gateway behavior, AI chat, subscription quota, and Phase 2 behavior were not added in this slice.
 
 ## 3. Database Setup
 
@@ -415,6 +452,50 @@ This file records current implementation progress and environment state. It is d
   - `GET /api/appointments/{appointmentId}` returned the created appointment
   - `GET /api/patients/{patientProfileId}/appointments` returned the Patient's appointment list
   - test reason used stroke rehabilitation wording: `Post-stroke rehabilitation consultation`
+- Implemented Payment Confirmation Placeholder MVP:
+  - `POST /api/appointments/{appointmentId}/confirm-payment` confirms a mock payment for an appointment
+  - only `PendingPayment` appointments can be confirmed
+  - missing appointments return `404 Not Found`
+  - non-`PendingPayment` appointments return `409 Conflict`
+  - successful confirmation moves the appointment to `Confirmed`
+  - successful confirmation moves the related Doctor schedule slot to `Booked`
+  - successful confirmation clears `SoftReservedUntil` and slot `ReservedUntil`
+  - no real payment gateway, webhook processing, commission, payout, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Payment Confirmation Placeholder:
+  - valid `PendingPayment` appointment confirms successfully
+  - missing appointment returns not found reason
+  - already confirmed appointment returns conflict reason
+- Implemented Appointment Cancellation MVP:
+  - `POST /api/appointments/{appointmentId}/cancel` cancels an appointment with a reason
+  - missing or deleted appointments return `404 Not Found`
+  - already cancelled appointments return `409 Conflict`
+  - `PendingPayment` appointments can be cancelled
+  - `Confirmed` appointments can be cancelled
+  - successful cancellation sets appointment status to `Cancelled`
+  - successful cancellation saves the cancellation reason
+  - successful cancellation clears `SoftReservedUntil`
+  - successful cancellation releases `SoftReserved` or `Booked` Doctor schedule slots back to `Available`
+  - successful cancellation clears the slot `ReservedUntil`
+  - no refund logic, real payment gateway behavior, AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Appointment Cancellation:
+  - cancel `PendingPayment` appointment succeeds
+  - cancel `Confirmed` appointment succeeds
+  - cancel non-existing appointment returns not found reason
+  - cancel already cancelled appointment returns conflict reason
+- Implemented Patient Profile Management MVP:
+  - `GET /api/patients/{patientProfileId}/profile` returns safe Patient profile details
+  - `PUT /api/patients/{patientProfileId}/profile` updates `dateOfBirth`, `gender`, and `address`
+  - missing or deleted Patient profiles return `404 Not Found`
+  - profile responses do not expose password hashes or sensitive auth data
+  - fixed the EF Core query path for `GET /api/patients/{patientProfileId}/profile` by loading `PatientProfile` with its linked `User` and mapping to `PatientProfileRecord` in memory instead of projecting directly into the record inside the LINQ query
+  - verified `GET` and `PUT` profile endpoints against `RehabAIDb`, including not-found cases
+  - no database schema changes or migrations were added
+  - no AI chat, subscription quota, or Phase 2 behavior was added in this slice
+- Added unit tests for Patient Profile Management:
+  - existing profile can be read
+  - missing profile returns null/not found path
+  - profile fields can be updated
+  - update for non-existing profile returns not found reason
 
 ## 5. Current Connection
 
@@ -626,6 +707,8 @@ Appointment Booking endpoints:
 
 ```text
 POST /api/appointments
+POST /api/appointments/{appointmentId}/confirm-payment
+POST /api/appointments/{appointmentId}/cancel
 GET /api/appointments/{appointmentId}
 GET /api/patients/{patientProfileId}/appointments
 ```
@@ -642,6 +725,61 @@ Direct appointment booking request body:
 }
 ```
 
+Payment confirmation placeholder behavior:
+
+```text
+POST /api/appointments/{appointmentId}/confirm-payment
+```
+
+This placeholder moves `PendingPayment` appointments to `Confirmed`, changes the related schedule slot to `Booked`, and clears both appointment and slot reservation timestamps. It exists only to complete the current web booking flow until real payment gateway/webhook handling is implemented.
+
+Appointment cancellation request body:
+
+```json
+{
+  "cancellationReason": "Patient needs to reschedule stroke mobility assessment."
+}
+```
+
+Appointment cancellation behavior:
+
+```text
+POST /api/appointments/{appointmentId}/cancel
+```
+
+This endpoint allows `PendingPayment` and `Confirmed` appointments to move to `Cancelled`. It clears appointment and slot reservation timestamps and releases a `SoftReserved` or `Booked` slot back to `Available`. Refund/payment reversal is intentionally not implemented yet.
+
+Patient Profile Management implementation files:
+
+```text
+src/RehabAI.Api/Controllers/PatientsController.cs
+src/RehabAI.Api/Contracts/Patients/PatientProfileRequests.cs
+src/RehabAI.Application/PatientProfiles/PatientProfileContracts.cs
+src/RehabAI.Application/PatientProfiles/PatientProfileService.cs
+src/RehabAI.Infrastructure/PatientProfiles/EfPatientProfileRepository.cs
+src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/PatientProfiles/PatientProfileServiceTests.cs
+```
+
+Patient Profile Management endpoints:
+
+```text
+GET /api/patients/{patientProfileId}/profile
+PUT /api/patients/{patientProfileId}/profile
+```
+
+Patient profile update request body:
+
+```json
+{
+  "dateOfBirth": "1990-05-20",
+  "gender": "Female",
+  "address": "Stroke rehabilitation home address"
+}
+```
+
+The current Patient profile schema does not include stroke-specific fields such as stroke history, affected side, mobility limitations, caregiver notes, or rehabilitation goals. Those fields should be handled in a future schema/migration slice if the product needs structured rehabilitation intake data.
+
 ## 6. Git/Branch State
 
 - Current working branch: `Test`.
@@ -656,8 +794,10 @@ Direct appointment booking request body:
 3. Doctor Schedule Slots MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
 4. Public/Searchable Doctor Listing MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
 5. Appointment Booking MVP is implemented locally in this workspace; make sure it is committed/pushed with the current feature set.
-6. Implement appointment payment initialization and verified payment webhook handling.
-7. AI/subscription quota is handled by another team and should not be implemented unless assigned.
+6. Replace the appointment payment confirmation placeholder with real payment initialization and verified payment webhook handling.
+7. Add refund/payment reversal handling for paid appointment cancellations.
+8. Add structured stroke rehabilitation Patient profile/intake fields in a future migration if assigned.
+9. AI/subscription quota is handled by another team and should not be implemented unless assigned.
 
 ## 8. Known Risks
 
@@ -675,6 +815,9 @@ Direct appointment booking request body:
 - Doctor Schedule Slots currently guard against active appointments during update/disable, but appointment booking/rescheduling workflows are not implemented yet.
 - Public Doctor listing is intentionally unauthenticated for Guests and Patients, but Admin-only profile approval management is not implemented yet.
 - Appointment Booking now moves slots to `SoftReserved`; payment webhook handling still needs to move successful appointments to `Pending` or `Confirmed` and slots to `Booked`.
+- Payment Confirmation Placeholder can move appointments from `PendingPayment` to `Confirmed` for local web-flow testing, but production payment finalization still must happen through verified webhook handling.
+- Appointment Cancellation can cancel `Confirmed` appointments and release the slot, but refund/payment reversal logic is not implemented yet.
+- Patient Profile Management currently supports only existing schema fields (`dateOfBirth`, `gender`, `address`). Stroke-specific rehabilitation notes/intake fields require a future schema decision and migration.
 - Pending payment expiration is not implemented yet; expired appointments still need a background job or command to return slots to `Available` and clear `ReservedUntil`.
 - Appointment Booking endpoints are implemented but not yet protected by authenticated Patient authorization policy because bearer authentication/authorization enforcement is still a future slice.
 - Appointment Booking request IDs must be valid GUID strings. Invalid GUID input, such as a copied `scheduleSlotId` with a missing character, is rejected by ASP.NET Core model binding before appointment business rules run.

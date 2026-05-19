@@ -141,6 +141,139 @@ public sealed class EfAppointmentBookingRepository(AppDbContext dbContext) : IAp
             null);
     }
 
+    public async Task<CreateAppointmentRepositoryResult> ConfirmPaymentPlaceholderAsync(
+        Guid appointmentId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+
+        var appointment = await dbContext.Appointments
+            .SingleOrDefaultAsync(
+                appointment => appointment.Id == appointmentId && !appointment.IsDeleted,
+                cancellationToken);
+
+        if (appointment is null)
+        {
+            return Failed("Appointment was not found.", AppointmentFailureReason.AppointmentNotFound);
+        }
+
+        if (appointment.Status != AppointmentStatus.PendingPayment)
+        {
+            return Failed(
+                "Only appointments with PendingPayment status can be confirmed.",
+                AppointmentFailureReason.AppointmentNotPendingPayment);
+        }
+
+        var slot = await dbContext.DoctorScheduleSlots
+            .SingleOrDefaultAsync(
+                slot => slot.Id == appointment.DoctorScheduleSlotId && !slot.IsDeleted,
+                cancellationToken);
+
+        if (slot is null)
+        {
+            return Failed("Schedule slot was not found.", AppointmentFailureReason.SlotNotFound);
+        }
+
+        appointment.Status = AppointmentStatus.Confirmed;
+        appointment.SoftReservedUntil = null;
+        appointment.UpdatedAt = now;
+
+        slot.Status = ScheduleSlotStatus.Booked;
+        slot.ReservedUntil = null;
+        slot.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var patientProfileId = await dbContext.PatientProfiles
+            .Where(profile => profile.UserId == appointment.PatientId && !profile.IsDeleted)
+            .Select(profile => profile.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return new CreateAppointmentRepositoryResult(
+            true,
+            ToRecord(appointment, patientProfileId),
+            null,
+            null);
+    }
+
+    public async Task<CreateAppointmentRepositoryResult> CancelAppointmentAsync(
+        Guid appointmentId,
+        string cancellationReason,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+
+        var appointment = await dbContext.Appointments
+            .SingleOrDefaultAsync(
+                appointment => appointment.Id == appointmentId && !appointment.IsDeleted,
+                cancellationToken);
+
+        if (appointment is null)
+        {
+            return Failed("Appointment was not found.", AppointmentFailureReason.AppointmentNotFound);
+        }
+
+        if (appointment.Status == AppointmentStatus.Cancelled)
+        {
+            return Failed(
+                "Appointment is already cancelled.",
+                AppointmentFailureReason.AppointmentAlreadyCancelled);
+        }
+
+        if (appointment.Status is not (AppointmentStatus.PendingPayment or AppointmentStatus.Confirmed))
+        {
+            return Failed(
+                "Only PendingPayment or Confirmed appointments can be cancelled.",
+                AppointmentFailureReason.AppointmentNotCancellable);
+        }
+
+        var slot = await dbContext.DoctorScheduleSlots
+            .SingleOrDefaultAsync(
+                slot => slot.Id == appointment.DoctorScheduleSlotId && !slot.IsDeleted,
+                cancellationToken);
+
+        if (slot is null)
+        {
+            return Failed("Schedule slot was not found.", AppointmentFailureReason.SlotNotFound);
+        }
+
+        appointment.Status = AppointmentStatus.Cancelled;
+        appointment.CancellationReason = cancellationReason;
+        appointment.SoftReservedUntil = null;
+        appointment.UpdatedAt = now;
+
+        if (slot.Status is ScheduleSlotStatus.SoftReserved or ScheduleSlotStatus.Booked)
+        {
+            slot.Status = ScheduleSlotStatus.Available;
+        }
+
+        slot.ReservedUntil = null;
+        slot.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var patientProfileId = await dbContext.PatientProfiles
+            .Where(profile => profile.UserId == appointment.PatientId && !profile.IsDeleted)
+            .Select(profile => profile.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return new CreateAppointmentRepositoryResult(
+            true,
+            ToRecord(appointment, patientProfileId),
+            null,
+            null);
+    }
+
     public async Task<AppointmentRecord?> GetByIdAsync(Guid appointmentId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Appointments
@@ -160,7 +293,8 @@ public sealed class EfAppointmentBookingRepository(AppDbContext dbContext) : IAp
                     appointment.StartTime,
                     appointment.EndTime,
                     appointment.SoftReservedUntil,
-                    appointment.Notes))
+                    appointment.Notes,
+                    appointment.CancellationReason))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
@@ -191,7 +325,8 @@ public sealed class EfAppointmentBookingRepository(AppDbContext dbContext) : IAp
                 row.Appointment.StartTime,
                 row.Appointment.EndTime,
                 row.Appointment.SoftReservedUntil,
-                row.Appointment.Notes))
+                row.Appointment.Notes,
+                row.Appointment.CancellationReason))
             .ToListAsync(cancellationToken);
     }
 
@@ -208,7 +343,8 @@ public sealed class EfAppointmentBookingRepository(AppDbContext dbContext) : IAp
             appointment.StartTime,
             appointment.EndTime,
             appointment.SoftReservedUntil,
-            appointment.Notes);
+            appointment.Notes,
+            appointment.CancellationReason);
     }
 
     private static CreateAppointmentRepositoryResult Failed(string message, AppointmentFailureReason reason)

@@ -47,6 +47,46 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
             : Ok(appointment);
     }
 
+    [HttpPost("appointments/{appointmentId:guid}/confirm-payment")]
+    public async Task<IActionResult> ConfirmPayment(Guid appointmentId, CancellationToken cancellationToken)
+    {
+        var result = await appointmentBookingService.ConfirmPaymentAsync(appointmentId, cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToAppointmentErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            appointment = result.Appointment
+        });
+    }
+
+    [HttpPost("appointments/{appointmentId:guid}/cancel")]
+    public async Task<IActionResult> CancelAppointment(
+        Guid appointmentId,
+        [FromBody] CancelAppointmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await appointmentBookingService.CancelAsync(
+            appointmentId,
+            request.CancellationReason,
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToAppointmentErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            appointment = result.Appointment
+        });
+    }
+
     [HttpGet("patients/{patientProfileId:guid}/appointments")]
     public async Task<IActionResult> GetPatientAppointments(Guid patientProfileId, CancellationToken cancellationToken)
     {
@@ -66,6 +106,10 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
             AppointmentFailureReason.SlotNotFound => NotFound(new { message = result.Message }),
             AppointmentFailureReason.SlotUnavailable => Conflict(new { message = result.Message }),
             AppointmentFailureReason.DoubleBooked => Conflict(new { message = result.Message }),
+            AppointmentFailureReason.AppointmentNotFound => NotFound(new { message = result.Message }),
+            AppointmentFailureReason.AppointmentNotPendingPayment => Conflict(new { message = result.Message }),
+            AppointmentFailureReason.AppointmentAlreadyCancelled => Conflict(new { message = result.Message }),
+            AppointmentFailureReason.AppointmentNotCancellable => Conflict(new { message = result.Message }),
             AppointmentFailureReason.PatientNotActive => StatusCode(StatusCodes.Status403Forbidden, new { message = result.Message }),
             AppointmentFailureReason.PatientRoleMissing => StatusCode(StatusCodes.Status403Forbidden, new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })

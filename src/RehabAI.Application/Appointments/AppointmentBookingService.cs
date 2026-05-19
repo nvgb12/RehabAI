@@ -93,6 +93,64 @@ public sealed class AppointmentBookingService(IAppointmentBookingRepository repo
         return appointment is null ? null : ToResponse(appointment);
     }
 
+    public async Task<AppointmentResult> ConfirmPaymentAsync(
+        Guid appointmentId,
+        CancellationToken cancellationToken = default)
+    {
+        if (appointmentId == Guid.Empty)
+        {
+            return Failed("Appointment id is required.", AppointmentFailureReason.Validation);
+        }
+
+        var confirmed = await repository.ConfirmPaymentPlaceholderAsync(appointmentId, cancellationToken);
+
+        if (!confirmed.Succeeded)
+        {
+            return Failed(
+                confirmed.Message ?? "Appointment payment could not be confirmed.",
+                confirmed.FailureReason ?? AppointmentFailureReason.Validation);
+        }
+
+        return new AppointmentResult(
+            true,
+            "Payment confirmed. Appointment is now confirmed.",
+            ToResponse(confirmed.Appointment!));
+    }
+
+    public async Task<AppointmentResult> CancelAsync(
+        Guid appointmentId,
+        string? cancellationReason,
+        CancellationToken cancellationToken = default)
+    {
+        if (appointmentId == Guid.Empty)
+        {
+            return Failed("Appointment id is required.", AppointmentFailureReason.Validation);
+        }
+
+        var normalizedReason = NormalizeOptional(cancellationReason);
+        if (normalizedReason is null)
+        {
+            return Failed("Cancellation reason is required.", AppointmentFailureReason.Validation);
+        }
+
+        var cancelled = await repository.CancelAppointmentAsync(
+            appointmentId,
+            normalizedReason,
+            cancellationToken);
+
+        if (!cancelled.Succeeded)
+        {
+            return Failed(
+                cancelled.Message ?? "Appointment could not be cancelled.",
+                cancelled.FailureReason ?? AppointmentFailureReason.Validation);
+        }
+
+        return new AppointmentResult(
+            true,
+            "Appointment cancelled successfully.",
+            ToResponse(cancelled.Appointment!));
+    }
+
     public async Task<IReadOnlyList<AppointmentResponse>> GetPatientAppointmentsAsync(
         Guid patientProfileId,
         CancellationToken cancellationToken = default)
@@ -154,6 +212,7 @@ public sealed class AppointmentBookingService(IAppointmentBookingRepository repo
             record.StartTime,
             record.EndTime,
             record.ReservedUntil,
-            record.Reason);
+            record.Reason,
+            record.CancellationReason);
     }
 }

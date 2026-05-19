@@ -8,3 +8,8 @@ public sealed record CreateAppointmentRequest
     public Guid ScheduleSlotId { get; init; }
     public string? Reason { get; init; }
 }
+
+public sealed record CancelAppointmentRequest
+{
+    public string? CancellationReason { get; init; }
+}
