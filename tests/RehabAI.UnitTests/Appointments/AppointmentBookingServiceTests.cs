@@ -92,6 +92,114 @@ public class AppointmentBookingServiceTests
         Assert.Equal(create.Appointment!.Id, appointments[0].Id);
     }
 
+    [Fact]
+    public async Task ConfirmPaymentAsync_WhenAppointmentIsPendingPayment_ConfirmsAppointment()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var create = await service.CreateAsync(repository.ValidCommand());
+
+        var result = await service.ConfirmPaymentAsync(create.Appointment!.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(nameof(AppointmentStatus.Confirmed), result.Appointment!.Status);
+        Assert.Null(result.Appointment.ReservedUntil);
+        Assert.True(repository.SlotWasBooked);
+        Assert.True(repository.ReservationWasCleared);
+    }
+
+    [Fact]
+    public async Task ConfirmPaymentAsync_WhenAppointmentDoesNotExist_ReturnsNotFoundReason()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.ConfirmPaymentAsync(Guid.NewGuid());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.AppointmentNotFound, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task ConfirmPaymentAsync_WhenAppointmentIsNotPendingPayment_ReturnsConflictReason()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var create = await service.CreateAsync(repository.ValidCommand());
+        await service.ConfirmPaymentAsync(create.Appointment!.Id);
+
+        var result = await service.ConfirmPaymentAsync(create.Appointment.Id);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.AppointmentNotPendingPayment, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenAppointmentIsPendingPayment_CancelsAppointment()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var create = await service.CreateAsync(repository.ValidCommand());
+
+        var result = await service.CancelAsync(
+            create.Appointment!.Id,
+            "Patient needs to reschedule stroke mobility assessment.");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(nameof(AppointmentStatus.Cancelled), result.Appointment!.Status);
+        Assert.Equal("Patient needs to reschedule stroke mobility assessment.", result.Appointment.CancellationReason);
+        Assert.Null(result.Appointment.ReservedUntil);
+        Assert.True(repository.SlotWasReleased);
+        Assert.True(repository.ReservationWasCleared);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenAppointmentIsConfirmed_CancelsAppointment()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var create = await service.CreateAsync(repository.ValidCommand());
+        await service.ConfirmPaymentAsync(create.Appointment!.Id);
+
+        var result = await service.CancelAsync(
+            create.Appointment.Id,
+            "Patient cannot attend neurological rehabilitation follow-up.");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(nameof(AppointmentStatus.Cancelled), result.Appointment!.Status);
+        Assert.True(repository.SlotWasReleased);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenAppointmentDoesNotExist_ReturnsNotFoundReason()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CancelAsync(
+            Guid.NewGuid(),
+            "Patient needs to reschedule.");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.AppointmentNotFound, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenAppointmentIsAlreadyCancelled_ReturnsConflictReason()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var create = await service.CreateAsync(repository.ValidCommand());
+        await service.CancelAsync(create.Appointment!.Id, "Patient requested cancellation.");
+
+        var result = await service.CancelAsync(
+            create.Appointment.Id,
+            "Duplicate cancellation request.");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.AppointmentAlreadyCancelled, result.FailureReason);
+    }
+
     private sealed class FakeAppointmentBookingRepository : IAppointmentBookingRepository
     {
         private readonly List<AppointmentRecord> appointments = [];
@@ -107,6 +215,9 @@ public class AppointmentBookingServiceTests
         public bool DoctorIsPublicBookable { get; set; } = true;
         public bool MedicalServiceIsActive { get; set; } = true;
         public AppointmentFailureReason? CreateFailureReason { get; set; }
+        public bool SlotWasBooked { get; private set; }
+        public bool SlotWasReleased { get; private set; }
+        public bool ReservationWasCleared { get; private set; }
 
         public CreateAppointmentCommand ValidCommand()
         {
@@ -115,7 +226,7 @@ public class AppointmentBookingServiceTests
                 DoctorProfileId,
                 MedicalServiceId,
                 ScheduleSlotId,
-                "Lower back pain consultation");
+                "Post-stroke rehabilitation consultation");
         }
 
         public Task<PatientBookingState?> GetPatientStateAsync(
@@ -184,11 +295,101 @@ public class AppointmentBookingServiceTests
                 start,
                 start.AddHours(1),
                 draft.ReservedUntil,
-                draft.Reason);
+                draft.Reason,
+                null);
 
             appointments.Add(appointment);
 
             return Task.FromResult(new CreateAppointmentRepositoryResult(true, appointment, null, null));
+        }
+
+        public Task<CreateAppointmentRepositoryResult> ConfirmPaymentPlaceholderAsync(
+            Guid appointmentId,
+            CancellationToken cancellationToken = default)
+        {
+            var index = appointments.FindIndex(appointment => appointment.Id == appointmentId);
+
+            if (index < 0)
+            {
+                return Task.FromResult(new CreateAppointmentRepositoryResult(
+                    false,
+                    null,
+                    AppointmentFailureReason.AppointmentNotFound,
+                    "Appointment was not found."));
+            }
+
+            var appointment = appointments[index];
+
+            if (appointment.Status != AppointmentStatus.PendingPayment)
+            {
+                return Task.FromResult(new CreateAppointmentRepositoryResult(
+                    false,
+                    null,
+                    AppointmentFailureReason.AppointmentNotPendingPayment,
+                    "Only appointments with PendingPayment status can be confirmed."));
+            }
+
+            var confirmed = appointment with
+            {
+                Status = AppointmentStatus.Confirmed,
+                ReservedUntil = null
+            };
+
+            appointments[index] = confirmed;
+            SlotWasBooked = true;
+            ReservationWasCleared = true;
+
+            return Task.FromResult(new CreateAppointmentRepositoryResult(true, confirmed, null, null));
+        }
+
+        public Task<CreateAppointmentRepositoryResult> CancelAppointmentAsync(
+            Guid appointmentId,
+            string cancellationReason,
+            CancellationToken cancellationToken = default)
+        {
+            var index = appointments.FindIndex(appointment => appointment.Id == appointmentId);
+
+            if (index < 0)
+            {
+                return Task.FromResult(new CreateAppointmentRepositoryResult(
+                    false,
+                    null,
+                    AppointmentFailureReason.AppointmentNotFound,
+                    "Appointment was not found."));
+            }
+
+            var appointment = appointments[index];
+
+            if (appointment.Status == AppointmentStatus.Cancelled)
+            {
+                return Task.FromResult(new CreateAppointmentRepositoryResult(
+                    false,
+                    null,
+                    AppointmentFailureReason.AppointmentAlreadyCancelled,
+                    "Appointment is already cancelled."));
+            }
+
+            if (appointment.Status is not (AppointmentStatus.PendingPayment or AppointmentStatus.Confirmed))
+            {
+                return Task.FromResult(new CreateAppointmentRepositoryResult(
+                    false,
+                    null,
+                    AppointmentFailureReason.AppointmentNotCancellable,
+                    "Only PendingPayment or Confirmed appointments can be cancelled."));
+            }
+
+            var cancelled = appointment with
+            {
+                Status = AppointmentStatus.Cancelled,
+                ReservedUntil = null,
+                CancellationReason = cancellationReason
+            };
+
+            appointments[index] = cancelled;
+            SlotWasReleased = true;
+            ReservationWasCleared = true;
+
+            return Task.FromResult(new CreateAppointmentRepositoryResult(true, cancelled, null, null));
         }
 
         public Task<AppointmentRecord?> GetByIdAsync(Guid appointmentId, CancellationToken cancellationToken = default)

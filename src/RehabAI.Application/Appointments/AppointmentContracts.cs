@@ -19,7 +19,8 @@ public sealed record AppointmentResponse(
     DateTimeOffset StartTime,
     DateTimeOffset EndTime,
     DateTimeOffset? ReservedUntil,
-    string? Reason);
+    string? Reason,
+    string? CancellationReason);
 
 public sealed record AppointmentResult(
     bool Succeeded,
@@ -38,12 +39,21 @@ public enum AppointmentFailureReason
     MedicalServiceNotFound = 7,
     SlotNotFound = 8,
     SlotUnavailable = 9,
-    DoubleBooked = 10
+    DoubleBooked = 10,
+    AppointmentNotFound = 11,
+    AppointmentNotPendingPayment = 12,
+    AppointmentAlreadyCancelled = 13,
+    AppointmentNotCancellable = 14
 }
 
 public interface IAppointmentBookingService
 {
     Task<AppointmentResult> CreateAsync(CreateAppointmentCommand command, CancellationToken cancellationToken = default);
+    Task<AppointmentResult> ConfirmPaymentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
+    Task<AppointmentResult> CancelAsync(
+        Guid appointmentId,
+        string? cancellationReason,
+        CancellationToken cancellationToken = default);
     Task<AppointmentResponse?> GetByIdAsync(Guid appointmentId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AppointmentResponse>> GetPatientAppointmentsAsync(Guid patientProfileId, CancellationToken cancellationToken = default);
 }
@@ -56,6 +66,13 @@ public interface IAppointmentBookingRepository
     Task<int?> GetSoftReserveMinutesAsync(CancellationToken cancellationToken = default);
     Task<CreateAppointmentRepositoryResult> CreatePendingPaymentAppointmentAsync(
         CreateAppointmentDraft draft,
+        CancellationToken cancellationToken = default);
+    Task<CreateAppointmentRepositoryResult> ConfirmPaymentPlaceholderAsync(
+        Guid appointmentId,
+        CancellationToken cancellationToken = default);
+    Task<CreateAppointmentRepositoryResult> CancelAppointmentAsync(
+        Guid appointmentId,
+        string cancellationReason,
         CancellationToken cancellationToken = default);
     Task<AppointmentRecord?> GetByIdAsync(Guid appointmentId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AppointmentRecord>> GetByPatientProfileIdAsync(Guid patientProfileId, CancellationToken cancellationToken = default);
@@ -98,4 +115,5 @@ public sealed record AppointmentRecord(
     DateTimeOffset StartTime,
     DateTimeOffset EndTime,
     DateTimeOffset? ReservedUntil,
-    string? Reason);
+    string? Reason,
+    string? CancellationReason);
