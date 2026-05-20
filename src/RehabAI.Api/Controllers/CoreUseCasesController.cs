@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RehabAI.Api.Authorization;
 
 namespace RehabAI.Api.Controllers;
 
@@ -12,6 +14,7 @@ public class CoreUseCasesController : ControllerBase
     [HttpGet("doctors/{doctorId:guid}/schedule")]
     public IActionResult GetDoctorSchedule(Guid doctorId) => Ok(new { doctorId, slots = Array.Empty<object>() });
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpPost("doctors/{doctorId:guid}/schedule")]
     public IActionResult ManageDoctorSchedule(Guid doctorId) => Accepted(new { message = "UC-14 scaffolded: manage doctor schedule.", doctorId });
 

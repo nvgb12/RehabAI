@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RehabAI.Api.Contracts.Auth;
 using RehabAI.Application.Auth;
@@ -5,6 +6,7 @@ using RehabAI.Application.Auth;
 namespace RehabAI.Api.Controllers;
 
 [ApiController]
+[AllowAnonymous]
 [Route("api/[controller]")]
 public class AuthController(IAuthService authService, IHostEnvironment hostEnvironment) : ControllerBase
 {
