@@ -1,18 +1,38 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RehabAI.Api.Authorization;
 using RehabAI.Api.Contracts.Appointments;
 using RehabAI.Application.Appointments;
 
 namespace RehabAI.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = AccessPolicies.ActivePatient)]
 [Route("api")]
-public class AppointmentsController(IAppointmentBookingService appointmentBookingService) : ControllerBase
+public class AppointmentsController(
+    IAppointmentBookingService appointmentBookingService,
+    IEndpointAccessService accessService) : ControllerBase
 {
     [HttpPost("appointments")]
     public async Task<IActionResult> CreateAppointment(
         [FromBody] CreateAppointmentRequest request,
         CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (!await accessService.PatientProfileBelongsToUserAsync(
+            currentUserId.Value,
+            request.PatientProfileId,
+            cancellationToken))
+        {
+            return Forbid();
+        }
+
         var result = await appointmentBookingService.CreateAsync(
             new CreateAppointmentCommand(
                 request.PatientProfileId,
@@ -40,6 +60,17 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
     [HttpGet("appointments/{appointmentId:guid}")]
     public async Task<IActionResult> GetAppointment(Guid appointmentId, CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (!await accessService.AppointmentBelongsToUserAsync(currentUserId.Value, appointmentId, cancellationToken))
+        {
+            return NotFound(new { message = "Appointment was not found." });
+        }
+
         var appointment = await appointmentBookingService.GetByIdAsync(appointmentId, cancellationToken);
 
         return appointment is null
@@ -50,6 +81,17 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
     [HttpPost("appointments/{appointmentId:guid}/confirm-payment")]
     public async Task<IActionResult> ConfirmPayment(Guid appointmentId, CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (!await accessService.AppointmentBelongsToUserAsync(currentUserId.Value, appointmentId, cancellationToken))
+        {
+            return NotFound(new { message = "Appointment was not found." });
+        }
+
         var result = await appointmentBookingService.ConfirmPaymentAsync(appointmentId, cancellationToken);
 
         if (!result.Succeeded)
@@ -70,6 +112,17 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
         [FromBody] CancelAppointmentRequest request,
         CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (!await accessService.AppointmentBelongsToUserAsync(currentUserId.Value, appointmentId, cancellationToken))
+        {
+            return NotFound(new { message = "Appointment was not found." });
+        }
+
         var result = await appointmentBookingService.CancelAsync(
             appointmentId,
             request.CancellationReason,
@@ -90,6 +143,17 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
     [HttpGet("patients/{patientProfileId:guid}/appointments")]
     public async Task<IActionResult> GetPatientAppointments(Guid patientProfileId, CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (!await accessService.PatientProfileBelongsToUserAsync(currentUserId.Value, patientProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         var appointments = await appointmentBookingService.GetPatientAppointmentsAsync(patientProfileId, cancellationToken);
 
         return Ok(appointments);
@@ -114,5 +178,14 @@ public class AppointmentsController(IAppointmentBookingService appointmentBookin
             AppointmentFailureReason.PatientRoleMissing => StatusCode(StatusCodes.Status403Forbidden, new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })
         };
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claimValue =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        return Guid.TryParse(claimValue, out var userId) ? userId : null;
     }
 }

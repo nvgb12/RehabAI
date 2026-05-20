@@ -1,21 +1,36 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RehabAI.Api.Authorization;
 using RehabAI.Api.Contracts.Patients;
 using RehabAI.Application.PatientProfiles;
 
 namespace RehabAI.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = AccessPolicies.ActivePatient)]
 [Route("api/patients")]
 public class PatientsController(IPatientProfileService patientProfileService) : ControllerBase
 {
     [HttpGet("{patientProfileId:guid}/profile")]
     public async Task<IActionResult> GetProfile(Guid patientProfileId, CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
         var profile = await patientProfileService.GetProfileAsync(patientProfileId, cancellationToken);
 
-        return profile is null
-            ? NotFound(new { message = "Patient profile was not found." })
-            : Ok(profile);
+        if (profile is null)
+        {
+            return NotFound(new { message = "Patient profile was not found." });
+        }
+
+        return profile.UserId == currentUserId.Value
+            ? Ok(profile)
+            : Forbid();
     }
 
     [HttpPut("{patientProfileId:guid}/profile")]
@@ -24,6 +39,24 @@ public class PatientsController(IPatientProfileService patientProfileService) : 
         [FromBody] UpdatePatientProfileRequest request,
         CancellationToken cancellationToken)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var existingProfile = await patientProfileService.GetProfileAsync(patientProfileId, cancellationToken);
+
+        if (existingProfile is null)
+        {
+            return NotFound(new { message = "Patient profile was not found." });
+        }
+
+        if (existingProfile.UserId != currentUserId.Value)
+        {
+            return Forbid();
+        }
+
         var result = await patientProfileService.UpdateProfileAsync(
             patientProfileId,
             new UpdatePatientProfileCommand(
@@ -46,5 +79,14 @@ public class PatientsController(IPatientProfileService patientProfileService) : 
             message = result.Message,
             profile = result.Profile
         });
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claimValue =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        return Guid.TryParse(claimValue, out var userId) ? userId : null;
     }
 }

@@ -1,16 +1,27 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RehabAI.Api.Authorization;
 using RehabAI.Api.Contracts.Doctors;
 using RehabAI.Api.Contracts.MedicalServices;
+using RehabAI.Api.Contracts.Orders;
+using RehabAI.Api.Contracts.Products;
 using RehabAI.Application.Doctors;
 using RehabAI.Application.MedicalServices;
+using RehabAI.Application.Orders;
+using RehabAI.Application.Products;
+using RehabAI.Application.Reports;
 
 namespace RehabAI.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = AccessPolicies.ActiveAdmin)]
 [Route("api/admin")]
 public class AdminController(
     IDoctorService doctorService,
     IMedicalServiceManager medicalServiceManager,
+    IProductManager productManager,
+    IOrderService orderService,
+    IRevenueReportService revenueReportService,
     IHostEnvironment hostEnvironment) : ControllerBase
 {
     [HttpPost("doctors")]
@@ -99,14 +110,149 @@ public class AdminController(
         return Ok(new { message = result.Message });
     }
 
+    [HttpGet("products")]
+    public async Task<IActionResult> GetProducts(CancellationToken cancellationToken)
+    {
+        var products = await productManager.GetProductsAsync(cancellationToken);
+
+        return Ok(products);
+    }
+
+    [HttpGet("products/{productId:guid}")]
+    public async Task<IActionResult> GetProduct(Guid productId, CancellationToken cancellationToken)
+    {
+        var product = await productManager.GetProductByIdAsync(productId, cancellationToken);
+
+        return product is null
+            ? NotFound(new { message = "Product was not found." })
+            : Ok(product);
+    }
+
+    [HttpPost("products")]
+    public async Task<IActionResult> CreateProduct(
+        CreateProductRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await productManager.CreateAsync(ToCreateProductCommand(request), cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToProductErrorResponse(result);
+        }
+
+        return CreatedAtAction(
+            nameof(GetProduct),
+            new { productId = result.Product!.Id },
+            new
+            {
+                message = result.Message,
+                product = result.Product
+            });
+    }
+
+    [HttpPut("products/{productId:guid}")]
+    public async Task<IActionResult> UpdateProduct(
+        Guid productId,
+        UpdateProductRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await productManager.UpdateAsync(productId, ToProductCommand(request), cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToProductErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            product = result.Product
+        });
+    }
+
+    [HttpDelete("products/{productId:guid}")]
+    public async Task<IActionResult> DeleteProduct(Guid productId, CancellationToken cancellationToken)
+    {
+        var result = await productManager.SoftDeleteAsync(productId, cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToProductErrorResponse(result);
+        }
+
+        return Ok(new { message = result.Message });
+    }
+
     [HttpGet("users")]
     public IActionResult ManageUsers() => Ok(Array.Empty<object>());
 
     [HttpGet("reports")]
     public IActionResult ViewReports() => Ok(new { message = "UC-19 scaffolded: reports." });
 
+    [HttpGet("reports/revenue")]
+    public async Task<IActionResult> GetRevenueReport(
+        [FromQuery] DateTimeOffset? fromDate,
+        [FromQuery] DateTimeOffset? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await revenueReportService.GetRevenueReportAsync(
+            new RevenueReportQuery(fromDate, toDate),
+            cancellationToken);
+
+        return result.Succeeded
+            ? Ok(result.Report)
+            : ToRevenueReportErrorResponse(result);
+    }
+
     [HttpGet("orders")]
-    public IActionResult ManageOrdersAdmin() => Ok(new { message = "UC-23 scaffolded: admin order management." });
+    public async Task<IActionResult> GetOrders(
+        [FromQuery] string? status,
+        [FromQuery] string? paymentStatus,
+        [FromQuery] DateTimeOffset? fromDate,
+        [FromQuery] DateTimeOffset? toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await orderService.GetAdminOrdersAsync(
+            new AdminOrderQuery(status, paymentStatus, fromDate, toDate),
+            cancellationToken);
+
+        return result.Succeeded
+            ? Ok(result.Orders)
+            : ToAdminOrderListErrorResponse(result);
+    }
+
+    [HttpGet("orders/{orderId:guid}")]
+    public async Task<IActionResult> GetOrder(Guid orderId, CancellationToken cancellationToken)
+    {
+        var order = await orderService.GetAdminOrderByIdAsync(orderId, cancellationToken);
+
+        return order is null
+            ? NotFound(new { message = "Order was not found." })
+            : Ok(order);
+    }
+
+    [HttpPut("orders/{orderId:guid}/status")]
+    public async Task<IActionResult> UpdateOrderStatus(
+        Guid orderId,
+        UpdateOrderStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await orderService.UpdateAdminOrderStatusAsync(
+            orderId,
+            new UpdateOrderStatusCommand(request.Status),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToAdminOrderErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            order = result.Order
+        });
+    }
 
     [HttpGet("subscriptions")]
     public IActionResult ManageSubscriptionsAdmin() => Ok(new { message = "UC-27 scaffolded: admin subscription management." });
@@ -159,11 +305,76 @@ public class AdminController(
             request.NoShowFeeAmount);
     }
 
+    private static UpsertProductCommand ToCreateProductCommand(CreateProductRequest request)
+    {
+        return new UpsertProductCommand(
+            request.Name,
+            request.Description,
+            request.CategoryId,
+            request.Price,
+            request.Currency,
+            request.StockQuantity,
+            request.ImageUrl,
+            request.IsActive ?? true);
+    }
+
+    private static UpsertProductCommand ToProductCommand(UpdateProductRequest request)
+    {
+        return new UpsertProductCommand(
+            request.Name,
+            request.Description,
+            request.CategoryId,
+            request.Price,
+            request.Currency,
+            request.StockQuantity,
+            request.ImageUrl,
+            request.IsActive);
+    }
+
     private IActionResult ToMedicalServiceErrorResponse(MedicalServiceResult result)
     {
         return result.FailureReason switch
         {
             MedicalServiceFailureReason.NotFound => NotFound(new { message = result.Message }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private IActionResult ToProductErrorResponse(ProductResult result)
+    {
+        return result.FailureReason switch
+        {
+            ProductFailureReason.NotFound => NotFound(new { message = result.Message }),
+            ProductFailureReason.DuplicateSlug => Conflict(new { message = result.Message }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private IActionResult ToAdminOrderListErrorResponse(AdminOrderListResult result)
+    {
+        return result.FailureReason switch
+        {
+            OrderFailureReason.InvalidStatus => BadRequest(new { message = result.Message }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private IActionResult ToAdminOrderErrorResponse(AdminOrderResult result)
+    {
+        return result.FailureReason switch
+        {
+            OrderFailureReason.OrderNotFound => NotFound(new { message = result.Message }),
+            OrderFailureReason.InvalidStatusTransition => Conflict(new { message = result.Message }),
+            OrderFailureReason.InvalidStatus => BadRequest(new { message = result.Message }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private IActionResult ToRevenueReportErrorResponse(RevenueReportResult result)
+    {
+        return result.FailureReason switch
+        {
+            RevenueReportFailureReason.Validation => BadRequest(new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })
         };
     }

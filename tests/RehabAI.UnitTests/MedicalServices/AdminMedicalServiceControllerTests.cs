@@ -5,6 +5,9 @@ using RehabAI.Api.Contracts.MedicalServices;
 using RehabAI.Api.Controllers;
 using RehabAI.Application.Doctors;
 using RehabAI.Application.MedicalServices;
+using RehabAI.Application.Orders;
+using RehabAI.Application.Products;
+using RehabAI.Application.Reports;
 
 namespace RehabAI.UnitTests.MedicalServices;
 
@@ -17,6 +20,9 @@ public class AdminMedicalServiceControllerTests
         var controller = new AdminController(
             new FakeDoctorService(),
             medicalServiceManager,
+            new FakeProductManager(),
+            new FakeOrderService(),
+            new FakeRevenueReportService(),
             new FakeHostEnvironment());
 
         var response = await controller.CreateMedicalService(
@@ -42,6 +48,9 @@ public class AdminMedicalServiceControllerTests
         var controller = new AdminController(
             new FakeDoctorService(),
             medicalServiceManager,
+            new FakeProductManager(),
+            new FakeOrderService(),
+            new FakeRevenueReportService(),
             new FakeHostEnvironment());
 
         var response = await controller.UpdateMedicalService(
@@ -133,6 +142,118 @@ public class AdminMedicalServiceControllerTests
         public Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeProductManager : IProductManager
+    {
+        public Task<IReadOnlyList<ProductResponse>> GetProductsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ProductResponse>>([]);
+        }
+
+        public Task<ProductResponse?> GetProductByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<ProductResponse?>(null);
+        }
+
+        public Task<IReadOnlyList<PublicProductResponse>> GetPublicProductsAsync(
+            PublicProductQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<PublicProductResponse>>([]);
+        }
+
+        public Task<PublicProductResponse?> GetPublicProductByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<PublicProductResponse?>(null);
+        }
+
+        public Task<ProductResult> CreateAsync(UpsertProductCommand command, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ProductResult(false, "Not used."));
+        }
+
+        public Task<ProductResult> UpdateAsync(Guid id, UpsertProductCommand command, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ProductResult(false, "Not used."));
+        }
+
+        public Task<ProductResult> SoftDeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ProductResult(false, "Not used."));
+        }
+    }
+
+    private sealed class FakeOrderService : IOrderService
+    {
+        public Task<OrderResult> CreateAsync(CreateOrderCommand command, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new OrderResult(false, "Not used."));
+        }
+
+        public Task<OrderResult> ConfirmPaymentAsync(Guid orderId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new OrderResult(false, "Not used."));
+        }
+
+        public Task<OrderResponse?> GetByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<OrderResponse?>(null);
+        }
+
+        public Task<IReadOnlyList<OrderResponse>> GetPatientOrdersAsync(
+            Guid patientProfileId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<OrderResponse>>([]);
+        }
+
+        public Task<CustomerOrderListResult> GetMyOrdersAsync(
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CustomerOrderListResult(true, "Not used.", []));
+        }
+
+        public Task<CustomerOrderDetailResult> GetMyOrderByIdAsync(
+            Guid currentUserId,
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CustomerOrderDetailResult(false, "Not used."));
+        }
+
+        public Task<AdminOrderListResult> GetAdminOrdersAsync(
+            AdminOrderQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new AdminOrderListResult(true, "Not used.", []));
+        }
+
+        public Task<AdminOrderDetailResponse?> GetAdminOrderByIdAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<AdminOrderDetailResponse?>(null);
+        }
+
+        public Task<AdminOrderResult> UpdateAdminOrderStatusAsync(
+            Guid orderId,
+            UpdateOrderStatusCommand command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new AdminOrderResult(false, "Not used."));
+        }
+    }
+
+    private sealed class FakeRevenueReportService : IRevenueReportService
+    {
+        public Task<RevenueReportResult> GetRevenueReportAsync(
+            RevenueReportQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new RevenueReportResult(false, "Not used."));
         }
     }
 

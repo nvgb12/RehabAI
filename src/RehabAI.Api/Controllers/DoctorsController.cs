@@ -1,4 +1,7 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RehabAI.Api.Authorization;
 using RehabAI.Api.Contracts.Doctors;
 using RehabAI.Application.DoctorSchedules;
 using RehabAI.Application.Doctors;
@@ -10,7 +13,8 @@ namespace RehabAI.Api.Controllers;
 [Route("api/doctors")]
 public class DoctorsController(
     IPublicDoctorListingService publicDoctorListingService,
-    IDoctorScheduleSlotService scheduleSlotService) : ControllerBase
+    IDoctorScheduleSlotService scheduleSlotService,
+    IEndpointAccessService accessService) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> SearchDoctors(
@@ -42,9 +46,15 @@ public class DoctorsController(
             : Ok(doctor);
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpGet("{doctorProfileId:guid}/schedule-slots")]
     public async Task<IActionResult> GetScheduleSlots(Guid doctorProfileId, CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         var slots = await scheduleSlotService.GetDoctorSlotsAsync(doctorProfileId, cancellationToken);
 
         return Ok(slots);
@@ -58,12 +68,18 @@ public class DoctorsController(
         return Ok(slots);
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpPost("{doctorProfileId:guid}/schedule-slots")]
     public async Task<IActionResult> CreateScheduleSlot(
         Guid doctorProfileId,
         CreateDoctorScheduleSlotRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         var result = await scheduleSlotService.CreateAsync(
             new CreateDoctorScheduleSlotCommand(doctorProfileId, request.StartTime, request.EndTime),
             cancellationToken);
@@ -83,6 +99,7 @@ public class DoctorsController(
             });
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpPut("{doctorProfileId:guid}/schedule-slots/{slotId:guid}")]
     public async Task<IActionResult> UpdateScheduleSlot(
         Guid doctorProfileId,
@@ -90,6 +107,11 @@ public class DoctorsController(
         UpdateDoctorScheduleSlotRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         if (!Enum.TryParse<ScheduleSlotStatus>(request.Status, true, out var status))
         {
             return BadRequest(new { message = "Schedule slot status is invalid." });
@@ -116,12 +138,18 @@ public class DoctorsController(
         });
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpDelete("{doctorProfileId:guid}/schedule-slots/{slotId:guid}")]
     public async Task<IActionResult> DisableScheduleSlot(
         Guid doctorProfileId,
         Guid slotId,
         CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         var result = await scheduleSlotService.DisableAsync(
             new DisableDoctorScheduleSlotCommand(doctorProfileId, slotId),
             cancellationToken);
@@ -138,21 +166,34 @@ public class DoctorsController(
         });
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveAdmin)]
     [HttpPost]
     public IActionResult CreateDoctor(CreateDoctorRequest request)
     {
         return Accepted(new { message = "UC-31 scaffolded: admin-created doctor account with password setup invitation.", request.Email });
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpPost("{doctorProfileId:guid}/credentials")]
-    public IActionResult UploadCredential(Guid doctorProfileId)
+    public async Task<IActionResult> UploadCredential(Guid doctorProfileId, CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         return Accepted(new { message = "UC-31 scaffolded: upload or record private doctor credential document metadata.", doctorProfileId });
     }
 
+    [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
     [HttpPost("{doctorProfileId:guid}/resend-invitation")]
-    public IActionResult ResendInvitation(Guid doctorProfileId)
+    public async Task<IActionResult> ResendInvitation(Guid doctorProfileId, CancellationToken cancellationToken)
     {
+        if (!await CanManageDoctorProfileAsync(doctorProfileId, cancellationToken))
+        {
+            return Forbid();
+        }
+
         return Accepted(new { message = "UC-31 scaffolded: resend single-use password setup invitation.", doctorProfileId });
     }
 
@@ -166,5 +207,27 @@ public class DoctorsController(
             DoctorScheduleSlotFailureReason.ActiveAppointmentsExist => Conflict(new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })
         };
+    }
+
+    private async Task<bool> CanManageDoctorProfileAsync(
+        Guid doctorProfileId,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+
+        return currentUserId is not null &&
+            await accessService.CanManageDoctorProfileAsync(
+                currentUserId.Value,
+                doctorProfileId,
+                cancellationToken);
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claimValue =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        return Guid.TryParse(claimValue, out var userId) ? userId : null;
     }
 }
