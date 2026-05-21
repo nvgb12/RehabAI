@@ -26,7 +26,14 @@ public sealed class PatientProfileService(IPatientProfileRepository repository) 
             return Failed("Patient profile id is required.", PatientProfileFailureReason.Validation);
         }
 
+        if (string.IsNullOrWhiteSpace(command.FullName))
+        {
+            return Failed("Full name is required.", PatientProfileFailureReason.Validation);
+        }
+
         var normalizedCommand = new UpdatePatientProfileCommand(
+            command.FullName.Trim(),
+            NormalizeOptional(command.PhoneNumber),
             command.DateOfBirth,
             NormalizeOptional(command.Gender),
             NormalizeOptional(command.Address));

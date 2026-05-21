@@ -181,6 +181,11 @@ public class AdminProductControllerTests
             return Task.FromResult(new CreateDoctorResult(false, "Not used."));
         }
 
+        public Task<IReadOnlyList<AdminDoctorResponse>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<AdminDoctorResponse>>([]);
+        }
+
         public Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;

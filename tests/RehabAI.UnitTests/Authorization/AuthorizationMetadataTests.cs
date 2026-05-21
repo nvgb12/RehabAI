@@ -21,6 +21,8 @@ public class AuthorizationMetadataTests
     [InlineData(typeof(DoctorsController), nameof(DoctorsController.GetAvailableSlots))]
     [InlineData(typeof(CommerceController), nameof(CommerceController.BrowseProducts))]
     [InlineData(typeof(CommerceController), nameof(CommerceController.GetProduct))]
+    [InlineData(typeof(LookupsController), nameof(LookupsController.GetSpecialties))]
+    [InlineData(typeof(LookupsController), nameof(LookupsController.GetProductCategories))]
     [InlineData(typeof(SubscriptionsController), nameof(SubscriptionsController.GetSubscriptionPlans))]
     public void PublicEndpoints_DoNotRequireAuthorizeMetadata(Type controllerType, string methodName)
     {

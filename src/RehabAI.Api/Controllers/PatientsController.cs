@@ -60,6 +60,8 @@ public class PatientsController(IPatientProfileService patientProfileService) : 
         var result = await patientProfileService.UpdateProfileAsync(
             patientProfileId,
             new UpdatePatientProfileCommand(
+                request.FullName,
+                request.PhoneNumber,
                 request.DateOfBirth,
                 request.Gender,
                 request.Address),

@@ -111,6 +111,32 @@ public sealed class EfDoctorAccountRepository(AppDbContext dbContext) : IDoctorA
         return new CreatedDoctorAccountResult(user.Id, doctorProfile.Id, emailLog.Id);
     }
 
+    public async Task<IReadOnlyList<AdminDoctorRecord>> GetAdminDoctorsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.DoctorProfiles
+            .AsNoTracking()
+            .Where(profile => !profile.IsDeleted && profile.User != null && !profile.User.IsDeleted)
+            .OrderByDescending(profile => profile.CreatedAt)
+            .ThenBy(profile => profile.User!.FullName)
+            .Select(profile => new AdminDoctorRecord(
+                profile.Id,
+                profile.UserId,
+                profile.User!.FullName,
+                profile.User.Email,
+                profile.User.PhoneNumber,
+                profile.User.Status,
+                profile.User.EmailConfirmed,
+                profile.SpecialtyId,
+                profile.Specialty!.Name,
+                profile.Bio,
+                profile.PublicProfileApproved,
+                profile.CreatedAt,
+                profile.UpdatedAt,
+                profile.IsDeleted))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task MarkInvitationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;

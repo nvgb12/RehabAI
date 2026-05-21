@@ -89,7 +89,8 @@ public class AuthController(IAuthService authService, IHostEnvironment hostEnvir
                 email = result.Email,
                 fullName = result.FullName,
                 roles = result.Roles,
-                accessToken = result.AccessToken
+                accessToken = result.AccessToken,
+                patientProfileId = result.PatientProfileId
             });
         }
 

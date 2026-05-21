@@ -27,20 +27,41 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
         string normalizedEmail,
         CancellationToken cancellationToken = default)
     {
-        return await dbContext.Users
+        var user = await dbContext.Users
             .Where(user => user.Email == normalizedEmail)
-            .Select(user => new UserAuthenticationRecord(
+            .Select(user => new
+            {
                 user.Id,
                 user.Email,
                 user.FullName,
                 user.PasswordHash,
-                (int)user.Status,
-                user.Roles
+                Status = (int)user.Status,
+                Roles = user.Roles
                     .Select(userRole => userRole.Role != null ? userRole.Role.Name : string.Empty)
                     .Where(roleName => roleName != string.Empty)
                     .OrderBy(roleName => roleName)
-                    .ToList()))
+                    .ToList()
+            })
             .SingleOrDefaultAsync(cancellationToken);
+
+        if (user is null)
+        {
+            return null;
+        }
+
+        var patientProfileId = await dbContext.PatientProfiles
+            .Where(profile => profile.UserId == user.Id && !profile.IsDeleted)
+            .Select(profile => (Guid?)profile.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return new UserAuthenticationRecord(
+            user.Id,
+            user.Email,
+            user.FullName,
+            user.PasswordHash,
+            user.Status,
+            user.Roles,
+            patientProfileId);
     }
 
     public async Task<PendingPatientRegistrationResult> CreatePendingPatientAsync(

@@ -10,10 +10,28 @@ using RehabAI.Infrastructure;
 using RehabAI.Infrastructure.Database;
 
 var builder = WebApplication.CreateBuilder(args);
+const string LocalFrontendCorsPolicy = "LocalFrontendCorsPolicy";
+var localFrontendOrigins = new[]
+{
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://localhost:5173",
+    "https://127.0.0.1:5173"
+};
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(LocalFrontendCorsPolicy, policy =>
+    {
+        policy
+            .WithOrigins(localFrontendOrigins)
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SchemaFilter<UpdateOrderStatusRequestSchemaFilter>();
@@ -82,7 +100,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
-await app.Services.SeedDatabaseAsync();
+await app.Services.SeedDatabaseAsync(app.Environment.IsDevelopment());
 
 if (app.Environment.IsDevelopment())
 {
@@ -92,6 +110,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseCors(LocalFrontendCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 

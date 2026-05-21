@@ -36,6 +36,18 @@ This file records current implementation progress and environment state. It is d
 - Subscription Purchase Placeholder MVP has been implemented for public plan listing and authenticated Active Patient subscription purchase/payment-flow testing.
 - Authentication and authorization have been audited and hardened with DB-backed active-status/role policies before frontend development.
 - React frontend foundation has been created under `frontend/` using Vite, TypeScript, Tailwind CSS, React Router, Axios, TanStack Query, React Hook Form, Zod, Lucide React, and Recharts.
+- Patient dashboard feature pages have been implemented in the React frontend for profile, appointments, order history, and subscription management.
+- Patient Profile frontend edit UI has been implemented for updating basic profile/account display fields from `/patient/profile`.
+- Appointment Booking UI has been implemented in the React frontend through doctor detail, service/slot selection, appointment creation, payment confirmation placeholder, and patient appointment actions.
+- Product Order Flow UI has been implemented in the React frontend through product detail, direct order creation, payment confirmation placeholder, and patient order history/detail.
+- Subscription Action UI has been implemented in the React frontend through current subscription display, available plan cards, subscribe action, and subscription payment confirmation placeholder.
+- Admin Dashboard UI has been implemented in the React frontend for revenue summary, product management, order management, revenue reports, medical services, and Admin-created Doctor accounts.
+- Admin Doctor List API has been implemented for Admin viewing all non-deleted Doctor profiles, including Active and PendingPasswordSetup doctors.
+- Supporting public lookup endpoints have been implemented for frontend dropdowns: `GET /api/specialties` and `GET /api/product-categories`.
+- SRS reference has been updated to the v6.11 shipping phases document at `D:\Rehab_AI_Use_Case_Specification_v6_11_shipping_phases.docx`.
+- A Development-only Admin test account note has been added to `src/RehabAI.Api/appsettings.Development.json`.
+- Development-only Admin account seeding has been implemented in `DatabaseSeeder`; it reads `DevelopmentTestAccounts:Admin` and creates/repairs the configured Admin test account only when the API runs in Development.
+- Development Admin login was verified with `admin@test.com` / `Password@123`, and the resulting Admin token successfully accessed `GET /api/admin/orders`.
 
 ## 2. Current Completed MVP Features
 
@@ -50,10 +62,56 @@ This file records current implementation progress and environment state. It is d
   - Tailwind CSS is configured for the RehabAI healthcare UI foundation.
   - React Router is configured with public routes and protected Patient/Admin routes.
   - Axios API client reads `VITE_API_BASE_URL` and defaults to `https://localhost:7007`.
+  - Local frontend environment file `frontend/.env` sets `VITE_API_BASE_URL=https://localhost:7007`.
   - Axios attaches the JWT access token from localStorage for MVP protected requests.
   - Initial pages are created for Home, Login, Register, Products, Doctors, Patient Dashboard, and Admin Dashboard.
   - Initial shared components are created for header, footer, search, product card, doctor card, stat card, loading, error, and empty states.
   - `npm install`, `npm run build`, and `npm run lint` pass in `frontend/`.
+  - Patient Dashboard cards now link to `/patient/profile`, `/patient/appointments`, `/patient/orders`, and `/patient/subscription`.
+  - Aliases are configured for `/profile`, `/appointments`, `/my-orders`, and `/subscription`.
+  - Patient protected pages use the existing JWT/localStorage auth helper and ProtectedRoute.
+  - Login response and JWT now include `patientProfileId` for Patient accounts so the frontend can call route-based Patient profile and appointment APIs.
+  - Patient Profile page calls `GET /api/patients/{patientProfileId}/profile`.
+  - Patient Profile page now supports view/edit mode and calls `PUT /api/patients/{patientProfileId}/profile` for `fullName`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
+  - Doctor cards now link to `/doctors/{doctorProfileId}`.
+  - Doctor Detail page calls `GET /api/doctors/{doctorProfileId}`, `GET /api/doctors/{doctorProfileId}/available-slots`, `GET /api/medical-services`, `POST /api/appointments`, and `POST /api/appointments/{appointmentId}/confirm-payment`.
+  - Doctor Detail booking form uses stroke rehabilitation reason examples such as `Post-stroke rehabilitation consultation`, `Stroke mobility assessment`, `Neurological rehabilitation follow-up`, and `Stroke recovery therapy session`.
+  - Patient Appointments page calls `GET /api/patients/{patientProfileId}/appointments`.
+  - Patient Appointments page now shows status badges and action buttons for pending payment confirmation and cancellation through `POST /api/appointments/{appointmentId}/confirm-payment` and `POST /api/appointments/{appointmentId}/cancel`.
+  - Product cards now link to `/products/{productId}`.
+  - Product Detail page calls `GET /api/products/{productId}`, `POST /api/orders`, and `POST /api/orders/{orderId}/confirm-payment`.
+  - Product Detail page supports direct order creation with quantity validation, shipping address input, order summary, and payment placeholder confirmation.
+  - Patient Orders page calls `GET /api/orders/my-orders` and `GET /api/orders/my-orders/{orderId}` for detail.
+  - Patient Subscription page calls `GET /api/subscriptions/me`, `GET /api/subscription-plans`, `POST /api/subscriptions/subscribe`, and `POST /api/subscriptions/{subscriptionId}/confirm-payment`.
+  - Patient Subscription page displays current subscription plan name, status, payment status, start date, and end date.
+  - Patient Subscription page displays available active plans with description, price, currency, and duration.
+  - Patient Subscription page can create a PendingPayment subscription from a plan and then confirm the placeholder payment to refresh the Active/Paid state.
+  - Patient Subscription page remains protected by the existing Patient route guard and redirects unauthenticated users to `/login`.
+  - Admin routes are configured for `/admin/dashboard`, `/admin/products`, `/admin/orders`, `/admin/reports`, `/admin/services`, and `/admin/doctors`.
+  - Admin routes reuse the existing `ProtectedRoute` with the `Admin` role, so unauthenticated users are redirected to `/login` and non-Admin users are blocked by the role guard.
+  - Admin Dashboard calls `GET /api/admin/reports/revenue` with the current month date range and displays product revenue, appointment revenue, total revenue, and paid order count.
+  - Admin Products page calls `GET /api/admin/products`, `POST /api/admin/products`, `PUT /api/admin/products/{productId}`, and `DELETE /api/admin/products/{productId}`.
+  - Admin Orders page calls `GET /api/admin/orders`, `GET /api/admin/orders/{orderId}`, and `PUT /api/admin/orders/{orderId}/status` with the allowed status values `Paid`, `Processing`, `Shipped`, `Completed`, and `Cancelled`.
+  - Admin Reports page supports a date range picker and revenue chart using Recharts.
+  - Admin Services page calls the active medical service list and Admin create/update/soft-delete endpoints for Medical Services.
+  - Admin Doctors page calls `GET /api/admin/doctors` to list all non-deleted Doctor profiles for Admin review.
+  - Admin Doctors page calls `POST /api/admin/doctors` to create Admin-created Doctor accounts and displays the Development invitation token/setup URL when returned by the API.
+  - Admin Doctors page refetches the Doctor list after a Doctor account is created.
+- Supporting dropdown APIs:
+  - `GET /api/specialties` returns active, non-deleted specialties with `id`, `name`, `slug`, and `description`.
+  - `GET /api/product-categories` returns non-deleted product categories with `id`, `name`, `slug`, and `description`.
+  - Product categories do not currently have `IsActive` or `Description` columns in the schema, so this endpoint filters by soft delete and returns `description = null`.
+- Local frontend/backend connection:
+  - Backend CORS is configured in `src/RehabAI.Api/Program.cs` for local Vite development only.
+  - Allowed local frontend origins are `http://localhost:5173`, `http://127.0.0.1:5173`, `https://localhost:5173`, and `https://127.0.0.1:5173`.
+  - CORS allows any method and header for those local origins and is applied before authentication/authorization middleware.
+  - If the browser reports HTTPS certificate errors against `https://localhost:7007`, trust the local .NET development certificate with `dotnet dev-certs https --trust`.
+- Development test account notes:
+  - `src/RehabAI.Api/appsettings.Development.json` contains `DevelopmentTestAccounts:Admin`.
+  - Current noted Admin email is `admin@test.com`.
+  - Current noted Admin password is `Password@123`.
+  - On Development startup, `DatabaseSeeder` creates or repairs this Admin test account with `Status = Active`, `EmailConfirmed = true`, `IsDeleted = false`, a hashed password, and the configured Admin role.
+  - The plaintext password is read from Development configuration only and is never stored in the database.
 - Seed data:
   - Seed logic is implemented in Infrastructure and is idempotent.
   - Roles are seeded, including `Patient`, `Doctor`, `Admin`, `AuthorizedInternalStaff`, `VerificationAdmin`, `SupportStaff`, and `FinanceAdmin`.
@@ -104,7 +162,9 @@ This file records current implementation progress and environment state. It is d
   - Uses the existing `PatientProfiles` table/model.
   - Profile detail returns safe profile/account fields only: `patientProfileId`, `userId`, `fullName`, `email`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
   - Profile detail does not expose `PasswordHash` or sensitive authentication data.
-  - Update supports existing schema fields: `dateOfBirth`, `gender`, and `address`.
+  - Update supports existing schema/account fields: `fullName`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
+  - `fullName` is required for profile update.
+  - `email` is displayed but not editable from the Patient profile UI.
   - Missing or deleted Patient profiles return `404 Not Found`.
   - Stroke-specific rehabilitation notes or condition notes are not in the current schema and should be added through a future migration if assigned.
 - Login MVP:
@@ -373,7 +433,7 @@ This file records current implementation progress and environment state. It is d
 - Confirmed that `RehabAIDb` exists in SQL Server.
 - Confirmed that generated database tables were created by the migration.
 - Added Infrastructure-layer database seeding through `DatabaseSeeder`.
-- Wired seed execution into API startup through `app.Services.SeedDatabaseAsync()`.
+- Wired seed execution into API startup through `app.Services.SeedDatabaseAsync(app.Environment.IsDevelopment())`.
 - Seeded core MVP lookup/configuration data:
   - roles
   - specialties
@@ -904,6 +964,22 @@ Admin-created Doctor endpoint:
 POST /api/admin/doctors
 ```
 
+Admin Doctor List endpoint:
+
+```text
+GET /api/admin/doctors
+```
+
+Admin Doctor List rules:
+
+```text
+Requires ActiveAdmin policy.
+Returns non-deleted DoctorProfiles joined with Users and Specialties.
+Includes active and pending doctors.
+Excludes PasswordHash, token data, and other sensitive authentication fields.
+Sorts newest DoctorProfiles first.
+```
+
 When the API environment is `Development`, a successful response includes:
 
 ```text
@@ -1367,6 +1443,8 @@ Public endpoints:
 - GET /api/products
 - GET /api/products/{productId}
 - GET /api/subscription-plans
+- GET /api/specialties
+- GET /api/product-categories
 - GET /api/medical-services
 - GET /api/medical-services/{id}
 
@@ -1384,6 +1462,7 @@ ActiveDoctorStaffOrAdmin policy endpoints:
 
 ActiveAdmin policy endpoints:
 - Admin-created Doctor account endpoint
+- Admin Doctor list endpoint
 - Admin Medical Services create/update/delete
 - Admin Product Management
 - Admin Order Management
@@ -1402,21 +1481,25 @@ ActiveAdmin policy endpoints:
 
 1. Commit/push any uncommitted changes to `origin/Test`.
 2. Run the backend API and frontend Vite dev server together, then test Login/Register/Product/Doctor pages against `https://localhost:7007`.
-3. Wire Patient Dashboard to real patient profile, appointment, purchase history, and subscription endpoints.
-4. Wire Admin Dashboard to product, order, revenue report, medical service, and doctor account endpoints.
-5. Test Admin Product Management in Swagger using an existing `ProductCategories.Id`, or add a separate Product Category management/seed slice if product categories need to be managed from the UI.
-6. Test Public Product Listing in Swagger with active/inactive/out-of-stock products.
-7. Test Order Creation in Swagger with active/inactive/deleted/out-of-stock products.
-8. Test Product Payment Confirmation Placeholder in Swagger with paid, pending, and insufficient-stock orders.
-9. Test Patient Purchase History in Swagger using a logged-in Active Patient JWT.
-10. Test Admin Order Management in Swagger with allowed status values: `Paid`, `Processing`, `Shipped`, `Completed`, and `Cancelled`.
-11. Test Revenue Report MVP in Swagger with paid/pending/cancelled/deleted order and appointment cases.
-12. Test Subscription Purchase Placeholder in Swagger with a logged-in Active Patient JWT.
-13. Implement shipping/delivery tracking fields or workflow from the v6.11 SRS if assigned.
-14. Replace appointment/product/subscription payment confirmation placeholders with real payment initialization and verified payment webhook handling.
-15. Add refund/payment reversal handling for paid appointment cancellations and paid product orders.
-16. Add structured stroke rehabilitation Patient profile/intake fields in a future migration if assigned.
-17. AI chatbot and AI/subscription quota enforcement are handled by another team and should not be implemented unless assigned.
+3. Log out and log in again with an Active Patient so localStorage receives the updated `patientProfileId`.
+4. Manually test `/patient/profile`, `/patient/appointments`, `/patient/orders`, and `/patient/subscription` from the Patient Dashboard.
+5. Manually test `/admin/dashboard`, `/admin/products`, `/admin/orders`, `/admin/reports`, `/admin/services`, and `/admin/doctors` with an Admin JWT.
+6. Test Admin Product Management in Swagger/UI using `GET /api/product-categories` to select an existing `ProductCategories.Id`.
+7. Test Public Product Listing in Swagger with active/inactive/out-of-stock products.
+8. Test Order Creation in Swagger with active/inactive/deleted/out-of-stock products.
+9. Test Product Payment Confirmation Placeholder in Swagger with paid, pending, and insufficient-stock orders.
+10. Test Patient Purchase History in Swagger using a logged-in Active Patient JWT.
+11. Test Admin Order Management in Swagger/UI with allowed status values: `Paid`, `Processing`, `Shipped`, `Completed`, and `Cancelled`.
+12. Test Revenue Report MVP in Swagger/UI with paid/pending/cancelled/deleted order and appointment cases.
+13. Test Subscription Purchase Placeholder in Swagger/UI with a logged-in Active Patient JWT.
+14. Implement Product Category management if Admin needs to create categories from the frontend.
+15. Test the Admin Doctor list in Swagger/UI with Active and PendingPasswordSetup doctors.
+16. Wire frontend Admin Doctor creation to `GET /api/specialties` if the UI should avoid manual `specialtyId` entry.
+17. Implement shipping/delivery tracking fields or workflow from the v6.11 SRS if assigned.
+18. Replace appointment/product/subscription payment confirmation placeholders with real payment initialization and verified payment webhook handling.
+19. Add refund/payment reversal handling for paid appointment cancellations and paid product orders.
+20. Add structured stroke rehabilitation Patient profile/intake fields in a future migration if assigned.
+21. AI chatbot and AI/subscription quota enforcement are handled by another team and should not be implemented unless assigned.
 
 ## 8. Known Risks
 
@@ -1428,7 +1511,12 @@ ActiveAdmin policy endpoints:
 - The verification email currently uses the placeholder email sender and includes a raw token in placeholder email content. A real frontend verification URL and production email provider are still needed.
 - Development registration responses intentionally expose the raw verification token for Swagger testing only. Production behavior was checked to avoid exposing token helper fields.
 - Development Doctor creation responses intentionally expose the raw invitation token for Swagger testing only. Production behavior must continue to avoid exposing invitation token helper fields.
-- Admin Product Management create/update requires an existing `ProductCategories.Id`; Product Category management endpoints and product category seed data are not implemented in this slice.
+- `DevelopmentTestAccounts` in `appsettings.Development.json` is Development-only test configuration and should not be treated as production secret storage.
+- The Development Admin account is seeded at API startup only when the environment is Development. Production deployments must use a real admin provisioning path and secret management.
+- Admin Product Management create/update requires an existing `ProductCategories.Id`; `GET /api/product-categories` now exposes existing categories for dropdowns, but Product Category create/update management is not implemented yet.
+- Admin Doctors UI can now use `GET /api/specialties` to avoid manual `specialtyId` entry, but the frontend still needs to be wired to this lookup endpoint.
+- Admin Doctors UI now lists non-deleted Doctor profiles through `GET /api/admin/doctors`.
+- Admin Services UI lists active medical services through the public active service endpoint because there is no Admin list-all medical services endpoint yet.
 - Public Product Listing only exposes active in-stock products. Product browse, order creation, mock product payment confirmation, and revenue reporting exist, but cart management, shipping/delivery tracking, and real product payment gateway integration are not implemented yet.
 - Order Creation validates current product stock but does not reserve or reduce stock yet. The Product Payment Confirmation Placeholder revalidates and reduces stock transactionally, but real payment finalization still must happen through verified webhook handling in production.
 - Product Payment Confirmation Placeholder can move orders from `Pending` payment to `Paid` and reduce stock for local web-flow testing, but production payment finalization still must happen through verified gateway/webhook handling.
@@ -1445,13 +1533,14 @@ ActiveAdmin policy endpoints:
 - Appointment Booking now moves slots to `SoftReserved`; payment webhook handling still needs to move successful appointments to `Pending` or `Confirmed` and slots to `Booked`.
 - Payment Confirmation Placeholder can move appointments from `PendingPayment` to `Confirmed` for local web-flow testing, but production payment finalization still must happen through verified webhook handling.
 - Appointment Cancellation can cancel `Confirmed` appointments and release the slot, but refund/payment reversal logic is not implemented yet.
-- Patient Profile Management currently supports only existing schema fields (`dateOfBirth`, `gender`, `address`). Stroke-specific rehabilitation notes/intake fields require a future schema decision and migration.
+- Patient Profile Management currently supports existing schema/account fields (`fullName`, `phoneNumber`, `dateOfBirth`, `gender`, `address`). Stroke-specific rehabilitation notes/intake fields require a future schema decision and migration.
 - Pending payment expiration is not implemented yet; expired appointments still need a background job or command to return slots to `Available` and clear `ReservedUntil`.
 - Appointment Booking request IDs must be valid GUID strings. Invalid GUID input, such as a copied `scheduleSlotId` with a missing character, is rejected by ASP.NET Core model binding before appointment business rules run.
 - `CreateDoctorRequest.YearsOfExperience` is accepted for API compatibility with the current request shape, but it is not persisted because the current `DoctorProfile` schema does not include a `YearsOfExperience` column and this task did not change schema or create a migration.
 - Doctor invitation password setup is implemented, but the real frontend setup page and production email URL are still needed.
 - Email verification now has unit coverage for valid, invalid, expired, and reused token paths. Broader integration tests against EF Core should still be added before production hardening.
 - JWT bearer validation and DB-backed active role policies are now wired for Patient, Admin, and Doctor/Staff/Admin protected endpoint groups. Production deployments must override the development signing key.
+- Existing browser sessions created before the frontend Patient dashboard page work may not have `patientProfileId` in localStorage/JWT. Users should log out and log in again after the backend restart.
 - Payment webhook endpoints remain placeholder/public and still need real provider signature verification, idempotency handling, and secret management before production.
 - Some UC scaffold endpoints remain non-final placeholders. They are either public browse-only scaffolds or conservatively protected by Patient/Admin/DoctorStaff policies, but their final business logic still needs implementation before production use.
 - Fine-grained delegated staff permissions are currently grouped under the seeded internal staff roles used by `ActiveDoctorStaffOrAdmin`; a future permission model can split schedule, credential, support, and finance capabilities more narrowly.

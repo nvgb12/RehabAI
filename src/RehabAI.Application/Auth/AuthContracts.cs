@@ -45,6 +45,7 @@ public sealed record LoginResult(
     string? FullName = null,
     IReadOnlyList<string>? Roles = null,
     string? AccessToken = null,
+    Guid? PatientProfileId = null,
     LoginFailureReason? FailureReason = null);
 
 public enum LoginFailureReason
@@ -132,7 +133,8 @@ public sealed record UserAuthenticationRecord(
     string FullName,
     string? PasswordHash,
     int Status,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    Guid? PatientProfileId = null);
 
 public interface IPasswordHasher
 {
