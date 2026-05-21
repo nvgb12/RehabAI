@@ -1,3 +1,5 @@
+using RehabAI.Domain.Enums;
+
 namespace RehabAI.Application.Doctors;
 
 public sealed record CreateDoctorCommand(
@@ -30,6 +32,7 @@ public enum CreateDoctorFailureReason
 public interface IDoctorService
 {
     Task<CreateDoctorResult> CreateDoctorAsync(CreateDoctorCommand command, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AdminDoctorResponse>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default);
     Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default);
 }
 
@@ -42,6 +45,7 @@ public interface IDoctorAccountRepository
     Task<CreatedDoctorAccountResult> CreateDoctorAccountAsync(
         CreatedDoctorAccount account,
         CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AdminDoctorRecord>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default);
     Task MarkInvitationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default);
     Task MarkInvitationEmailFailedAsync(Guid emailLogId, string errorMessage, CancellationToken cancellationToken = default);
 }
@@ -60,3 +64,35 @@ public sealed record CreatedDoctorAccount(
     string EmailTemplateName);
 
 public sealed record CreatedDoctorAccountResult(Guid UserId, Guid DoctorProfileId, Guid EmailLogId);
+
+public sealed record AdminDoctorRecord(
+    Guid DoctorProfileId,
+    Guid UserId,
+    string FullName,
+    string Email,
+    string? PhoneNumber,
+    AccountStatus Status,
+    bool EmailConfirmed,
+    Guid SpecialtyId,
+    string SpecialtyName,
+    string? Bio,
+    bool PublicProfileApproved,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    bool IsDeleted);
+
+public sealed record AdminDoctorResponse(
+    Guid DoctorProfileId,
+    Guid UserId,
+    string FullName,
+    string Email,
+    string? PhoneNumber,
+    string Status,
+    bool EmailConfirmed,
+    Guid SpecialtyId,
+    string SpecialtyName,
+    string? Bio,
+    bool PublicProfileApproved,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    bool IsDeleted);

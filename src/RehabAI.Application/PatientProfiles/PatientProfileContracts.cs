@@ -11,6 +11,8 @@ public sealed record PatientProfileResponse(
     string? Address);
 
 public sealed record UpdatePatientProfileCommand(
+    string? FullName,
+    string? PhoneNumber,
     DateOnly? DateOfBirth,
     string? Gender,
     string? Address);

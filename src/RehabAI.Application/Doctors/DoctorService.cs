@@ -108,6 +108,30 @@ public sealed class DoctorService(
             setupUrl);
     }
 
+    public async Task<IReadOnlyList<AdminDoctorResponse>> GetAdminDoctorsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var doctors = await doctorAccountRepository.GetAdminDoctorsAsync(cancellationToken);
+
+        return doctors
+            .Select(doctor => new AdminDoctorResponse(
+                doctor.DoctorProfileId,
+                doctor.UserId,
+                doctor.FullName,
+                doctor.Email,
+                doctor.PhoneNumber,
+                doctor.Status.ToString(),
+                doctor.EmailConfirmed,
+                doctor.SpecialtyId,
+                doctor.SpecialtyName,
+                doctor.Bio,
+                doctor.PublicProfileApproved,
+                doctor.CreatedAt,
+                doctor.UpdatedAt,
+                doctor.IsDeleted))
+            .ToList();
+    }
+
     public Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException("Resend invitation is not part of the current Admin-created Doctor account MVP task.");

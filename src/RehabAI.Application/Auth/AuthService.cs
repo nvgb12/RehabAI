@@ -203,7 +203,8 @@ public sealed class AuthService(
             user.Email,
             user.FullName,
             user.Roles,
-            accessToken);
+            accessToken,
+            user.PatientProfileId);
     }
 
     public async Task<SetupDoctorPasswordResult> SetupDoctorPasswordAsync(

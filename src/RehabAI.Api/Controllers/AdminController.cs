@@ -24,6 +24,14 @@ public class AdminController(
     IRevenueReportService revenueReportService,
     IHostEnvironment hostEnvironment) : ControllerBase
 {
+    [HttpGet("doctors")]
+    public async Task<IActionResult> GetDoctors(CancellationToken cancellationToken)
+    {
+        var doctors = await doctorService.GetAdminDoctorsAsync(cancellationToken);
+
+        return Ok(doctors);
+    }
+
     [HttpPost("doctors")]
     public async Task<IActionResult> CreateDoctor(CreateDoctorRequest request, CancellationToken cancellationToken)
     {

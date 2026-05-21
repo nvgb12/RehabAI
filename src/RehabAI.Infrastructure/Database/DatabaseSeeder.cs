@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using RehabAI.Application.Auth;
 using RehabAI.Domain.Entities;
+using RehabAI.Domain.Enums;
 
 namespace RehabAI.Infrastructure.Database;
 
@@ -8,15 +11,28 @@ public static class DatabaseSeeder
 {
     private static readonly DateTimeOffset SeedTimestamp = new(2026, 5, 14, 0, 0, 0, TimeSpan.Zero);
 
-    public static async Task SeedDatabaseAsync(this IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+    public static async Task SeedDatabaseAsync(
+        this IServiceProvider serviceProvider,
+        bool seedDevelopmentData = false,
+        CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
 
         await SeedRolesAsync(dbContext, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         await SeedSpecialtiesAsync(dbContext, cancellationToken);
         await SeedSubscriptionPlansAsync(dbContext, cancellationToken);
         await SeedSystemSettingsAsync(dbContext, cancellationToken);
+        await SeedDevelopmentAdminAsync(
+            dbContext,
+            configuration,
+            seedDevelopmentData,
+            passwordHasher,
+            cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
@@ -140,6 +156,98 @@ public static class DatabaseSeeder
                 ValueType = seed.ValueType,
                 Description = seed.Description,
                 CreatedAt = SeedTimestamp
+            });
+        }
+    }
+
+    private static async Task SeedDevelopmentAdminAsync(
+        AppDbContext dbContext,
+        IConfiguration configuration,
+        bool seedDevelopmentData,
+        IPasswordHasher passwordHasher,
+        CancellationToken cancellationToken)
+    {
+        if (!seedDevelopmentData)
+        {
+            return;
+        }
+
+        var email = configuration["DevelopmentTestAccounts:Admin:Email"]?.Trim();
+        var password = configuration["DevelopmentTestAccounts:Admin:Password"];
+        var roleName = configuration["DevelopmentTestAccounts:Admin:Role"]?.Trim();
+
+        if (string.IsNullOrWhiteSpace(email) ||
+            string.IsNullOrWhiteSpace(password) ||
+            string.IsNullOrWhiteSpace(roleName))
+        {
+            return;
+        }
+
+        var role = await dbContext.Roles
+            .FirstOrDefaultAsync(existingRole => existingRole.Name == roleName, cancellationToken);
+
+        if (role is null)
+        {
+            role = new Role
+            {
+                Name = roleName,
+                Description = "Development administrator account role.",
+                CreatedAt = SeedTimestamp
+            };
+
+            dbContext.Roles.Add(role);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else if (role.IsDeleted)
+        {
+            role.IsDeleted = false;
+            role.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        var user = await dbContext.Users
+            .Include(existingUser => existingUser.Roles)
+            .FirstOrDefaultAsync(existingUser => existingUser.Email == email, cancellationToken);
+
+        if (user is null)
+        {
+            user = new User
+            {
+                FullName = "Admin",
+                Email = email,
+                PasswordHash = passwordHasher.HashPassword(password),
+                Status = AccountStatus.Active,
+                EmailConfirmed = true,
+                IsDeleted = false,
+                CreatedAt = SeedTimestamp
+            };
+
+            dbContext.Users.Add(user);
+        }
+        else
+        {
+            user.FullName = string.IsNullOrWhiteSpace(user.FullName) ? "Admin" : user.FullName;
+            user.Status = AccountStatus.Active;
+            user.EmailConfirmed = true;
+            user.IsDeleted = false;
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+
+            if (string.IsNullOrWhiteSpace(user.PasswordHash) ||
+                !passwordHasher.VerifyPassword(password, user.PasswordHash))
+            {
+                user.PasswordHash = passwordHasher.HashPassword(password);
+            }
+        }
+
+        var hasRole = user.Roles.Any(assignment => assignment.RoleId == role.Id);
+
+        if (!hasRole)
+        {
+            user.Roles.Add(new UserRoleAssignment
+            {
+                UserId = user.Id,
+                User = user,
+                Role = role,
+                RoleId = role.Id
             });
         }
     }

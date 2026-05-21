@@ -33,6 +33,9 @@ public sealed class EfPatientProfileRepository(AppDbContext dbContext) : IPatien
             return null;
         }
 
+        profile.User!.FullName = command.FullName!;
+        profile.User.PhoneNumber = command.PhoneNumber;
+        profile.User.UpdatedAt = DateTimeOffset.UtcNow;
         profile.DateOfBirth = command.DateOfBirth;
         profile.Gender = command.Gender;
         profile.Address = command.Address;

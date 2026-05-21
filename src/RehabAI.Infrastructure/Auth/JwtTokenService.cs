@@ -40,6 +40,11 @@ public sealed class JwtTokenService(IConfiguration configuration) : IJwtTokenSer
             ["exp"] = now.AddMinutes(accessTokenMinutes).ToUnixTimeSeconds()
         };
 
+        if (user.PatientProfileId is not null)
+        {
+            payload["patientProfileId"] = user.PatientProfileId.Value.ToString();
+        }
+
         var encodedHeader = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
         var encodedPayload = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(payload));
         var unsignedToken = $"{encodedHeader}.{encodedPayload}";
