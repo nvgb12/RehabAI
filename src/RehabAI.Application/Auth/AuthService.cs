@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using System.Text.Json;
 using RehabAI.Application.Emails;
 using RehabAI.Domain.Enums;
 
@@ -14,8 +15,12 @@ public sealed class AuthService(
 {
     private const string PatientRoleName = "Patient";
     private const int EmailVerificationTokenLifetimeHours = 24;
+    private const int PasswordResetTokenLifetimeMinutes = 30;
     private const string VerificationEmailSubject = "Verify your Rehab AI account";
     private const string VerificationEmailTemplate = "PatientEmailVerification";
+    private const string PasswordResetEmailSubject = "Reset your Rehab AI password";
+    private const string PasswordResetEmailTemplate = "PasswordReset";
+    private const string GenericPasswordResetMessage = "If the account is eligible, a password reset email will be sent.";
 
     public async Task<RegisterPatientResult> RegisterPatientAsync(
         RegisterPatientCommand command,
@@ -204,7 +209,8 @@ public sealed class AuthService(
             user.FullName,
             user.Roles,
             accessToken,
-            user.PatientProfileId);
+            user.PatientProfileId,
+            user.DoctorProfileId);
     }
 
     public async Task<SetupDoctorPasswordResult> SetupDoctorPasswordAsync(
@@ -266,14 +272,120 @@ public sealed class AuthService(
             email);
     }
 
-    public Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default)
+    public async Task<PasswordResetRequestResult> RequestPasswordResetAsync(
+        RequestPasswordResetCommand command,
+        CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Password reset is not part of the current Patient registration MVP task.");
+        if (string.IsNullOrWhiteSpace(command.Email) || !IsValidEmail(command.Email))
+        {
+            return new PasswordResetRequestResult(true, GenericPasswordResetMessage);
+        }
+
+        var email = NormalizeEmail(command.Email);
+        var user = await registrationRepository.GetEligiblePasswordResetUserAsync(email, cancellationToken);
+        if (user is null)
+        {
+            return new PasswordResetRequestResult(true, GenericPasswordResetMessage);
+        }
+
+        var resetToken = tokenService.GenerateToken();
+        var tokenHash = tokenService.HashToken(resetToken);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(PasswordResetTokenLifetimeMinutes);
+        var developmentPayload = command.IncludeDevelopmentPayload
+            ? JsonSerializer.Serialize(new
+            {
+                resetToken,
+                swaggerResetPasswordRequest = new
+                {
+                    email,
+                    token = resetToken,
+                    newPassword = "Password@123"
+                }
+            })
+            : null;
+
+        var reset = new PendingPasswordReset(
+            user.UserId,
+            email,
+            tokenHash,
+            expiresAt,
+            PasswordResetEmailSubject,
+            PasswordResetEmailTemplate,
+            developmentPayload);
+
+        var emailLogId = await registrationRepository.CreatePasswordResetAsync(reset, cancellationToken);
+        if (emailLogId is null)
+        {
+            return new PasswordResetRequestResult(true, GenericPasswordResetMessage);
+        }
+
+        try
+        {
+            var emailBody = BuildPasswordResetEmailBody(user.FullName, resetToken, expiresAt);
+            await emailSender.SendAsync(email, PasswordResetEmailSubject, emailBody, cancellationToken);
+            await registrationRepository.MarkEmailSentAsync(emailLogId.Value, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await registrationRepository.MarkEmailFailedAsync(emailLogId.Value, exception.Message, cancellationToken);
+        }
+
+        return new PasswordResetRequestResult(true, GenericPasswordResetMessage);
     }
 
-    public Task ResetPasswordAsync(ResetPasswordCommand command, CancellationToken cancellationToken = default)
+    public async Task<ResetPasswordResult> ResetPasswordAsync(
+        ResetPasswordCommand command,
+        CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Password reset is not part of the current Patient registration MVP task.");
+        var validationMessage = ValidateResetPasswordCommand(command);
+        if (validationMessage is not null)
+        {
+            return new ResetPasswordResult(false, validationMessage, FailureReason: ResetPasswordFailureReason.Validation);
+        }
+
+        var email = NormalizeEmail(command.Email);
+        var tokenHash = tokenService.HashToken(command.Token.Trim());
+        var tokenRecords = await registrationRepository.GetPasswordResetTokensAsync(email, cancellationToken);
+        var tokenRecord = tokenRecords.SingleOrDefault(record => tokenService.TokenHashesEqual(tokenHash, record.TokenHash));
+
+        if (tokenRecord is null)
+        {
+            return new ResetPasswordResult(
+                false,
+                "Password reset token is invalid.",
+                email,
+                ResetPasswordFailureReason.InvalidToken);
+        }
+
+        if (tokenRecord.UsedAt is not null)
+        {
+            return new ResetPasswordResult(
+                false,
+                "Password reset token has already been used.",
+                email,
+                ResetPasswordFailureReason.UsedToken);
+        }
+
+        if (tokenRecord.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return new ResetPasswordResult(
+                false,
+                "Password reset token has expired.",
+                email,
+                ResetPasswordFailureReason.ExpiredToken);
+        }
+
+        var passwordHash = passwordHasher.HashPassword(command.NewPassword);
+        await registrationRepository.CompletePasswordResetAsync(
+            tokenRecord.UserId,
+            tokenRecord.TokenId,
+            passwordHash,
+            cancellationToken);
+
+        return new ResetPasswordResult(
+            true,
+            "Password reset successfully.",
+            email);
     }
 
     private static string? ValidateRegisterPatientCommand(RegisterPatientCommand command)
@@ -346,6 +458,26 @@ public sealed class AuthService(
         return null;
     }
 
+    private static string? ValidateResetPasswordCommand(ResetPasswordCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.Email) || !IsValidEmail(command.Email))
+        {
+            return "A valid email is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Token))
+        {
+            return "Password reset token is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.NewPassword))
+        {
+            return "New password is required.";
+        }
+
+        return null;
+    }
+
     private static string? GetBlockedLoginMessage(AccountStatus status)
     {
         return status switch
@@ -388,6 +520,16 @@ public sealed class AuthService(
         return $"""
             <p>Hello {fullName},</p>
             <p>Please verify your Rehab AI account using this verification token:</p>
+            <p><strong>{token}</strong></p>
+            <p>This token expires at {expiresAt:O}.</p>
+            """;
+    }
+
+    private static string BuildPasswordResetEmailBody(string fullName, string token, DateTimeOffset expiresAt)
+    {
+        return $"""
+            <p>Hello {fullName},</p>
+            <p>Use this reset token to set a new Rehab AI password:</p>
             <p><strong>{token}</strong></p>
             <p>This token expires at {expiresAt:O}.</p>
             """;

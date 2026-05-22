@@ -28,6 +28,7 @@ public class EmailLog : BaseEntity
     public string TemplateName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? ErrorMessage { get; set; }
+    public string? MetadataJson { get; set; }
     public DateTimeOffset? SentAt { get; set; }
 }
 

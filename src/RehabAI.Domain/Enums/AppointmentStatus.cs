@@ -8,7 +8,9 @@ public enum AppointmentStatus
     Confirmed = 4,
     Completed = 5,
     Cancelled = 6,
-    NoShow = 7
+    NoShow = 7,
+    Requested = 8,
+    Rejected = 9
 }
 
 public enum ScheduleSlotStatus

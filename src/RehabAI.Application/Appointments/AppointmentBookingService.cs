@@ -1,3 +1,5 @@
+using RehabAI.Domain.Enums;
+
 namespace RehabAI.Application.Appointments;
 
 public sealed class AppointmentBookingService(IAppointmentBookingRepository repository) : IAppointmentBookingService
@@ -49,6 +51,12 @@ public sealed class AppointmentBookingService(IAppointmentBookingRepository repo
             return Failed("Medical service was not found or is not active.", AppointmentFailureReason.MedicalServiceNotFound);
         }
 
+        var slotValidation = await ValidateScheduleSlotAsync(command, cancellationToken);
+        if (slotValidation is not null)
+        {
+            return slotValidation;
+        }
+
         var softReserveMinutes = await repository.GetSoftReserveMinutesAsync(cancellationToken) ?? DefaultSoftReserveMinutes;
         if (softReserveMinutes <= 0)
         {
@@ -76,6 +84,75 @@ public sealed class AppointmentBookingService(IAppointmentBookingRepository repo
         return new AppointmentResult(
             true,
             "Appointment created successfully.",
+            ToResponse(created.Appointment!));
+    }
+
+    public async Task<AppointmentResult> CreateRequestAsync(
+        CreateAppointmentRequestCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var validationMessage = ValidateRequestCommand(command);
+
+        if (validationMessage is not null)
+        {
+            return Failed(validationMessage, AppointmentFailureReason.Validation);
+        }
+
+        var patient = await repository.GetPatientStateAsync(command.PatientProfileId, cancellationToken);
+
+        if (patient is null)
+        {
+            return Failed("Patient profile was not found.", AppointmentFailureReason.PatientNotFound);
+        }
+
+        if (!patient.IsActive)
+        {
+            return Failed("Only active Patient accounts can request appointments.", AppointmentFailureReason.PatientNotActive);
+        }
+
+        if (!patient.HasPatientRole)
+        {
+            return Failed("User linked to the patient profile does not have the Patient role.", AppointmentFailureReason.PatientRoleMissing);
+        }
+
+        var doctor = await repository.GetDoctorStateAsync(command.DoctorProfileId, cancellationToken);
+
+        if (doctor is null)
+        {
+            return Failed("Doctor profile was not found.", AppointmentFailureReason.DoctorNotFound);
+        }
+
+        if (!doctor.IsPublicBookable)
+        {
+            return Failed("Doctor is not publicly bookable.", AppointmentFailureReason.DoctorNotPublicBookable);
+        }
+
+        if (!await repository.MedicalServiceIsActiveAsync(command.MedicalServiceId, cancellationToken))
+        {
+            return Failed("Medical service was not found or is not active.", AppointmentFailureReason.MedicalServiceNotFound);
+        }
+
+        var created = await repository.CreateRequestedAppointmentAsync(
+            new CreateAppointmentRequestDraft(
+                command.PatientProfileId,
+                patient.UserId,
+                command.DoctorProfileId,
+                command.MedicalServiceId,
+                command.PreferredStartTime,
+                command.PreferredEndTime,
+                NormalizeOptional(command.Reason)!),
+            cancellationToken);
+
+        if (!created.Succeeded)
+        {
+            return Failed(
+                created.Message ?? "Appointment request could not be created.",
+                created.FailureReason ?? AppointmentFailureReason.Validation);
+        }
+
+        return new AppointmentResult(
+            true,
+            "Appointment request submitted successfully.",
             ToResponse(created.Appointment!));
     }
 
@@ -185,6 +262,70 @@ public sealed class AppointmentBookingService(IAppointmentBookingRepository repo
         if (command.ScheduleSlotId == Guid.Empty)
         {
             return "Schedule slot is required.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateRequestCommand(CreateAppointmentRequestCommand command)
+    {
+        if (command.PatientProfileId == Guid.Empty)
+        {
+            return "Patient profile is required.";
+        }
+
+        if (command.DoctorProfileId == Guid.Empty)
+        {
+            return "Doctor profile is required.";
+        }
+
+        if (command.MedicalServiceId == Guid.Empty)
+        {
+            return "Medical service is required.";
+        }
+
+        if (command.PreferredStartTime >= command.PreferredEndTime)
+        {
+            return "Preferred start time must be before preferred end time.";
+        }
+
+        if (command.PreferredStartTime <= DateTimeOffset.UtcNow)
+        {
+            return "Preferred start time must be in the future.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Reason))
+        {
+            return "Appointment request reason is required.";
+        }
+
+        return null;
+    }
+
+    private async Task<AppointmentResult?> ValidateScheduleSlotAsync(
+        CreateAppointmentCommand command,
+        CancellationToken cancellationToken)
+    {
+        var slot = await repository.GetScheduleSlotStateAsync(command.ScheduleSlotId, cancellationToken);
+
+        if (slot is null)
+        {
+            return Failed("Schedule slot is required and must be available for direct booking.", AppointmentFailureReason.SlotNotFound);
+        }
+
+        if (slot.DoctorProfileId != command.DoctorProfileId)
+        {
+            return Failed("Schedule slot does not belong to the selected doctor.", AppointmentFailureReason.SlotNotFound);
+        }
+
+        if (slot.StartTime <= DateTimeOffset.UtcNow || slot.Status != ScheduleSlotStatus.Available)
+        {
+            return Failed("Schedule slot is not available for booking.", AppointmentFailureReason.SlotUnavailable);
+        }
+
+        if (slot.HasActiveAppointment)
+        {
+            return Failed("Schedule slot has already been booked.", AppointmentFailureReason.DoubleBooked);
         }
 
         return null;

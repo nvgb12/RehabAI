@@ -14,8 +14,8 @@ public sealed record PublicDoctorSummaryResponse(
     string SpecialtyName,
     string? Bio,
     string? AvatarUrl,
-    DateTimeOffset NextAvailableSlotStartTime,
-    DateTimeOffset NextAvailableSlotEndTime);
+    DateTimeOffset? NextAvailableSlotStartTime,
+    DateTimeOffset? NextAvailableSlotEndTime);
 
 public sealed record PublicDoctorSearchResult(
     bool Succeeded,
@@ -58,5 +58,5 @@ public sealed record PublicDoctorRecord(
     string SpecialtyName,
     string? Bio,
     string? AvatarUrl,
-    DateTimeOffset NextAvailableSlotStartTime,
-    DateTimeOffset NextAvailableSlotEndTime);
+    DateTimeOffset? NextAvailableSlotStartTime,
+    DateTimeOffset? NextAvailableSlotEndTime);

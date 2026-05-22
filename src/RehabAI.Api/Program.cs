@@ -79,6 +79,12 @@ builder.Services.AddAuthorization(options =>
             .AddRequirements(new ActiveRoleRequirement(AccessPolicies.PatientRole)));
 
     options.AddPolicy(
+        AccessPolicies.ActiveDoctor,
+        policy => policy
+            .RequireAuthenticatedUser()
+            .AddRequirements(new ActiveRoleRequirement(AccessPolicies.DoctorRole)));
+
+    options.AddPolicy(
         AccessPolicies.ActiveAdmin,
         policy => policy
             .RequireAuthenticatedUser()
@@ -110,6 +116,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseStaticFiles();
 app.UseCors(LocalFrontendCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();

@@ -10,6 +10,9 @@ public interface IEndpointAccessService
         Guid userId,
         Guid patientProfileId,
         CancellationToken cancellationToken = default);
+    Task<Guid?> GetPatientProfileIdForUserAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
     Task<bool> AppointmentBelongsToUserAsync(
         Guid userId,
         Guid appointmentId,
@@ -47,6 +50,17 @@ public sealed class EndpointAccessService(AppDbContext dbContext) : IEndpointAcc
                     profile.UserId == userId &&
                     !profile.IsDeleted,
                 cancellationToken);
+    }
+
+    public async Task<Guid?> GetPatientProfileIdForUserAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.PatientProfiles
+            .AsNoTracking()
+            .Where(profile => profile.UserId == userId && !profile.IsDeleted)
+            .Select(profile => (Guid?)profile.Id)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     public Task<bool> AppointmentBelongsToUserAsync(

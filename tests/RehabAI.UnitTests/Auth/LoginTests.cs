@@ -171,12 +171,55 @@ public class LoginTests
             return Task.CompletedTask;
         }
 
+        public Task<PasswordResetUserRecord?> GetEligiblePasswordResetUserAsync(
+            string normalizedEmail,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<PasswordResetUserRecord?>(null);
+        }
+
+        public Task<Guid?> CreatePasswordResetAsync(
+            PendingPasswordReset reset,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Guid?>(Guid.NewGuid());
+        }
+
+        public Task<IReadOnlyList<PasswordResetTokenRecord>> GetPasswordResetTokensAsync(
+            string normalizedEmail,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<PasswordResetTokenRecord>>([]);
+        }
+
+        public Task CompletePasswordResetAsync(
+            Guid userId,
+            Guid tokenId,
+            string passwordHash,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task MarkVerificationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }
 
         public Task MarkVerificationEmailFailedAsync(
+            Guid emailLogId,
+            string errorMessage,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task MarkEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task MarkEmailFailedAsync(
             Guid emailLogId,
             string errorMessage,
             CancellationToken cancellationToken = default)

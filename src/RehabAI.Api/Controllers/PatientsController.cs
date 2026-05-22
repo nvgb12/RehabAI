@@ -83,6 +83,46 @@ public class PatientsController(IPatientProfileService patientProfileService) : 
         });
     }
 
+    [HttpPost("me/profile-image")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadProfileImage(
+        [FromForm] UploadPatientProfileImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (request.File is null)
+        {
+            return BadRequest(new { message = "Profile image file is required." });
+        }
+
+        await using var content = request.File.OpenReadStream();
+        var result = await patientProfileService.UploadProfileImageAsync(
+            new UploadPatientProfileImageCommand(
+                currentUserId.Value,
+                request.File.FileName,
+                request.File.ContentType,
+                request.File.Length,
+                content),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return result.FailureReason switch
+            {
+                PatientProfileFailureReason.NotFound => NotFound(new { message = result.Message }),
+                PatientProfileFailureReason.FileTooLarge => BadRequest(new { message = result.Message }),
+                _ => BadRequest(new { message = result.Message })
+            };
+        }
+
+        return Ok(new { result.ProfileImageUrl });
+    }
+
     private Guid? GetCurrentUserId()
     {
         var claimValue =

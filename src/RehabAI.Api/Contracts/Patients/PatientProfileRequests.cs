@@ -8,3 +8,8 @@ public sealed record UpdatePatientProfileRequest
     public string? Gender { get; init; }
     public string? Address { get; init; }
 }
+
+public sealed record UploadPatientProfileImageRequest
+{
+    public IFormFile? File { get; init; }
+}

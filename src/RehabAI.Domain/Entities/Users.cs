@@ -51,6 +51,7 @@ public class PatientProfile : BaseEntity
     public DateOnly? DateOfBirth { get; set; }
     public string? Gender { get; set; }
     public string? Address { get; set; }
+    public string? ProfileImageUrl { get; set; }
     public User? User { get; set; }
 }
 
@@ -61,6 +62,11 @@ public class DoctorProfile : BaseEntity
     public string? Bio { get; set; }
     public string? AvatarUrl { get; set; }
     public bool PublicProfileApproved { get; set; }
+    public DoctorProfileReviewStatus PublicProfileReviewStatus { get; set; } = DoctorProfileReviewStatus.Draft;
+    public DateTimeOffset? SubmittedForReviewAt { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
+    public Guid? ReviewedByAdminId { get; set; }
+    public string? PublicProfileRejectionReason { get; set; }
     public decimal CommissionRate { get; set; }
     public User? User { get; set; }
     public Specialty? Specialty { get; set; }

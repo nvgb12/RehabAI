@@ -8,7 +8,7 @@ public class PatientProfileServiceTests
     public async Task GetProfileAsync_WhenProfileExists_ReturnsSafeProfileFields()
     {
         var repository = new FakePatientProfileRepository();
-        var service = new PatientProfileService(repository);
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
 
         var profile = await service.GetProfileAsync(repository.PatientProfileId);
 
@@ -24,7 +24,7 @@ public class PatientProfileServiceTests
     public async Task GetProfileAsync_WhenProfileDoesNotExist_ReturnsNull()
     {
         var repository = new FakePatientProfileRepository();
-        var service = new PatientProfileService(repository);
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
 
         var profile = await service.GetProfileAsync(Guid.NewGuid());
 
@@ -35,7 +35,7 @@ public class PatientProfileServiceTests
     public async Task UpdateProfileAsync_WhenProfileExists_UpdatesBasicProfileFields()
     {
         var repository = new FakePatientProfileRepository();
-        var service = new PatientProfileService(repository);
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
         var dateOfBirth = new DateOnly(1990, 5, 20);
 
         var result = await service.UpdateProfileAsync(
@@ -59,7 +59,7 @@ public class PatientProfileServiceTests
     public async Task UpdateProfileAsync_WhenFullNameIsBlank_ReturnsValidationFailure()
     {
         var repository = new FakePatientProfileRepository();
-        var service = new PatientProfileService(repository);
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
 
         var result = await service.UpdateProfileAsync(
             repository.PatientProfileId,
@@ -78,7 +78,7 @@ public class PatientProfileServiceTests
     public async Task UpdateProfileAsync_WhenProfileDoesNotExist_ReturnsNotFound()
     {
         var repository = new FakePatientProfileRepository();
-        var service = new PatientProfileService(repository);
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
 
         var result = await service.UpdateProfileAsync(
             Guid.NewGuid(),
@@ -91,6 +91,60 @@ public class PatientProfileServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(PatientProfileFailureReason.NotFound, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task UploadProfileImageAsync_WhenValidImage_SavesUrl()
+    {
+        var repository = new FakePatientProfileRepository();
+        var storage = new FakeProfileImageStorage();
+        var service = new PatientProfileService(repository, storage);
+
+        var result = await service.UploadProfileImageAsync(new UploadPatientProfileImageCommand(
+            repository.UserId,
+            "avatar.png",
+            "image/png",
+            128,
+            new MemoryStream([1, 2, 3])));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("/uploads/profile-images/test.png", result.ProfileImageUrl);
+        Assert.Equal("/uploads/profile-images/test.png", repository.ProfileImageUrl);
+        Assert.Equal(".png", storage.Extension);
+    }
+
+    [Fact]
+    public async Task UploadProfileImageAsync_WhenExtensionIsInvalid_ReturnsValidationFailure()
+    {
+        var repository = new FakePatientProfileRepository();
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
+
+        var result = await service.UploadProfileImageAsync(new UploadPatientProfileImageCommand(
+            repository.UserId,
+            "avatar.gif",
+            "image/gif",
+            128,
+            new MemoryStream([1, 2, 3])));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(PatientProfileFailureReason.Validation, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task UploadProfileImageAsync_WhenFileIsTooLarge_ReturnsFileTooLarge()
+    {
+        var repository = new FakePatientProfileRepository();
+        var service = new PatientProfileService(repository, new FakeProfileImageStorage());
+
+        var result = await service.UploadProfileImageAsync(new UploadPatientProfileImageCommand(
+            repository.UserId,
+            "avatar.jpg",
+            "image/jpeg",
+            2 * 1024 * 1024 + 1,
+            new MemoryStream([1, 2, 3])));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(PatientProfileFailureReason.FileTooLarge, result.FailureReason);
     }
 
     private sealed class FakePatientProfileRepository : IPatientProfileRepository
@@ -109,11 +163,13 @@ public class PatientProfileServiceTests
                 "0912345678",
                 null,
                 null,
+                null,
                 null);
         }
 
         public Guid PatientProfileId { get; }
         public Guid UserId { get; }
+        public string? ProfileImageUrl => profile.ProfileImageUrl;
 
         public Task<PatientProfileRecord?> GetByIdAsync(
             Guid patientProfileId,
@@ -142,6 +198,42 @@ public class PatientProfileServiceTests
             };
 
             return Task.FromResult<PatientProfileRecord?>(profile);
+        }
+
+        public Task<PatientProfileRecord?> GetByUserIdAsync(
+            Guid userId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(userId == UserId ? profile : null);
+        }
+
+        public Task<string?> UpdateProfileImageAsync(
+            Guid patientProfileId,
+            string profileImageUrl,
+            CancellationToken cancellationToken = default)
+        {
+            if (patientProfileId != PatientProfileId)
+            {
+                return Task.FromResult<string?>(null);
+            }
+
+            profile = profile with { ProfileImageUrl = profileImageUrl };
+
+            return Task.FromResult<string?>(profileImageUrl);
+        }
+    }
+
+    private sealed class FakeProfileImageStorage : IProfileImageStorage
+    {
+        public string? Extension { get; private set; }
+
+        public Task<string> SaveAsync(
+            Stream content,
+            string fileExtension,
+            CancellationToken cancellationToken = default)
+        {
+            Extension = fileExtension;
+            return Task.FromResult($"/uploads/profile-images/test{fileExtension}");
         }
     }
 }

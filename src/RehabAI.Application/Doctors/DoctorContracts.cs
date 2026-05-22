@@ -33,6 +33,16 @@ public interface IDoctorService
 {
     Task<CreateDoctorResult> CreateDoctorAsync(CreateDoctorCommand command, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AdminDoctorResponse>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default);
+    Task<AdminDoctorResponse?> GetAdminDoctorByIdAsync(Guid doctorProfileId, CancellationToken cancellationToken = default);
+    Task<AdminDoctorPublicProfileReviewResult> ApprovePublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        CancellationToken cancellationToken = default);
+    Task<AdminDoctorPublicProfileReviewResult> RejectPublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        string rejectionReason,
+        CancellationToken cancellationToken = default);
     Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default);
 }
 
@@ -46,6 +56,18 @@ public interface IDoctorAccountRepository
         CreatedDoctorAccount account,
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AdminDoctorRecord>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default);
+    Task<AdminDoctorRecord?> GetAdminDoctorByIdAsync(Guid doctorProfileId, CancellationToken cancellationToken = default);
+    Task<AdminDoctorRecord?> ApprovePublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        DateTimeOffset reviewedAt,
+        CancellationToken cancellationToken = default);
+    Task<AdminDoctorRecord?> RejectPublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        string rejectionReason,
+        DateTimeOffset reviewedAt,
+        CancellationToken cancellationToken = default);
     Task MarkInvitationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default);
     Task MarkInvitationEmailFailedAsync(Guid emailLogId, string errorMessage, CancellationToken cancellationToken = default);
 }
@@ -76,7 +98,13 @@ public sealed record AdminDoctorRecord(
     Guid SpecialtyId,
     string SpecialtyName,
     string? Bio,
+    string? AvatarUrl,
     bool PublicProfileApproved,
+    DoctorProfileReviewStatus PublicProfileReviewStatus,
+    DateTimeOffset? SubmittedForReviewAt,
+    DateTimeOffset? ReviewedAt,
+    Guid? ReviewedByAdminId,
+    string? PublicProfileRejectionReason,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
     bool IsDeleted);
@@ -92,7 +120,28 @@ public sealed record AdminDoctorResponse(
     Guid SpecialtyId,
     string SpecialtyName,
     string? Bio,
+    string? AvatarUrl,
     bool PublicProfileApproved,
+    string PublicProfileReviewStatus,
+    DateTimeOffset? SubmittedForReviewAt,
+    DateTimeOffset? ReviewedAt,
+    Guid? ReviewedByAdminId,
+    string? PublicProfileRejectionReason,
+    bool IsPublicProfileReady,
+    IReadOnlyList<string> PublicProfileMissingItems,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
     bool IsDeleted);
+
+public sealed record AdminDoctorPublicProfileReviewResult(
+    bool Succeeded,
+    string Message,
+    AdminDoctorResponse? Doctor = null,
+    AdminDoctorPublicProfileReviewFailureReason? FailureReason = null);
+
+public enum AdminDoctorPublicProfileReviewFailureReason
+{
+    Validation = 1,
+    DoctorNotFound = 2,
+    InvalidStatus = 3
+}

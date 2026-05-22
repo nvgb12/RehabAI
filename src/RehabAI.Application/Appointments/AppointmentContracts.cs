@@ -9,12 +9,20 @@ public sealed record CreateAppointmentCommand(
     Guid ScheduleSlotId,
     string? Reason);
 
+public sealed record CreateAppointmentRequestCommand(
+    Guid PatientProfileId,
+    Guid DoctorProfileId,
+    Guid MedicalServiceId,
+    DateTimeOffset PreferredStartTime,
+    DateTimeOffset PreferredEndTime,
+    string? Reason);
+
 public sealed record AppointmentResponse(
     Guid Id,
     Guid PatientProfileId,
     Guid DoctorProfileId,
     Guid MedicalServiceId,
-    Guid ScheduleSlotId,
+    Guid? ScheduleSlotId,
     string Status,
     DateTimeOffset StartTime,
     DateTimeOffset EndTime,
@@ -43,12 +51,14 @@ public enum AppointmentFailureReason
     AppointmentNotFound = 11,
     AppointmentNotPendingPayment = 12,
     AppointmentAlreadyCancelled = 13,
-    AppointmentNotCancellable = 14
+    AppointmentNotCancellable = 14,
+    InvalidStatusTransition = 15
 }
 
 public interface IAppointmentBookingService
 {
     Task<AppointmentResult> CreateAsync(CreateAppointmentCommand command, CancellationToken cancellationToken = default);
+    Task<AppointmentResult> CreateRequestAsync(CreateAppointmentRequestCommand command, CancellationToken cancellationToken = default);
     Task<AppointmentResult> ConfirmPaymentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
     Task<AppointmentResult> CancelAsync(
         Guid appointmentId,
@@ -63,9 +73,13 @@ public interface IAppointmentBookingRepository
     Task<PatientBookingState?> GetPatientStateAsync(Guid patientProfileId, CancellationToken cancellationToken = default);
     Task<DoctorBookingState?> GetDoctorStateAsync(Guid doctorProfileId, CancellationToken cancellationToken = default);
     Task<bool> MedicalServiceIsActiveAsync(Guid medicalServiceId, CancellationToken cancellationToken = default);
+    Task<ScheduleSlotBookingState?> GetScheduleSlotStateAsync(Guid scheduleSlotId, CancellationToken cancellationToken = default);
     Task<int?> GetSoftReserveMinutesAsync(CancellationToken cancellationToken = default);
     Task<CreateAppointmentRepositoryResult> CreatePendingPaymentAppointmentAsync(
         CreateAppointmentDraft draft,
+        CancellationToken cancellationToken = default);
+    Task<CreateAppointmentRepositoryResult> CreateRequestedAppointmentAsync(
+        CreateAppointmentRequestDraft draft,
         CancellationToken cancellationToken = default);
     Task<CreateAppointmentRepositoryResult> ConfirmPaymentPlaceholderAsync(
         Guid appointmentId,
@@ -89,6 +103,13 @@ public sealed record DoctorBookingState(
     Guid UserId,
     bool IsPublicBookable);
 
+public sealed record ScheduleSlotBookingState(
+    Guid ScheduleSlotId,
+    Guid DoctorProfileId,
+    ScheduleSlotStatus Status,
+    DateTimeOffset StartTime,
+    bool HasActiveAppointment);
+
 public sealed record CreateAppointmentDraft(
     Guid PatientProfileId,
     Guid PatientUserId,
@@ -97,6 +118,15 @@ public sealed record CreateAppointmentDraft(
     Guid ScheduleSlotId,
     string? Reason,
     DateTimeOffset ReservedUntil);
+
+public sealed record CreateAppointmentRequestDraft(
+    Guid PatientProfileId,
+    Guid PatientUserId,
+    Guid DoctorProfileId,
+    Guid MedicalServiceId,
+    DateTimeOffset PreferredStartTime,
+    DateTimeOffset PreferredEndTime,
+    string Reason);
 
 public sealed record CreateAppointmentRepositoryResult(
     bool Succeeded,
@@ -110,7 +140,7 @@ public sealed record AppointmentRecord(
     Guid PatientUserId,
     Guid DoctorProfileId,
     Guid MedicalServiceId,
-    Guid ScheduleSlotId,
+    Guid? ScheduleSlotId,
     AppointmentStatus Status,
     DateTimeOffset StartTime,
     DateTimeOffset EndTime,

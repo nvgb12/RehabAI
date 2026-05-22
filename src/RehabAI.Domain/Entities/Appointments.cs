@@ -43,7 +43,7 @@ public class Appointment : BaseEntity
     public Guid PatientId { get; set; }
     public Guid DoctorProfileId { get; set; }
     public Guid MedicalServiceId { get; set; }
-    public Guid DoctorScheduleSlotId { get; set; }
+    public Guid? DoctorScheduleSlotId { get; set; }
     public DateTimeOffset StartTime { get; set; }
     public DateTimeOffset EndTime { get; set; }
     public AppointmentStatus Status { get; set; } = AppointmentStatus.Pending;

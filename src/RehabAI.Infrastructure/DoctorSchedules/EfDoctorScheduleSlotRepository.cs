@@ -72,7 +72,8 @@ public sealed class EfDoctorScheduleSlotRepository(AppDbContext dbContext) : IDo
     {
         return dbContext.Appointments.AnyAsync(
             appointment =>
-                appointment.DoctorScheduleSlotId == slotId &&
+                appointment.DoctorScheduleSlotId.HasValue &&
+                appointment.DoctorScheduleSlotId.Value == slotId &&
                 !appointment.IsDeleted &&
                 (appointment.Status == AppointmentStatus.PendingPayment ||
                     appointment.Status == AppointmentStatus.Pending ||

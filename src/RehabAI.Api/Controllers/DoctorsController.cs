@@ -13,6 +13,7 @@ namespace RehabAI.Api.Controllers;
 [Route("api/doctors")]
 public class DoctorsController(
     IPublicDoctorListingService publicDoctorListingService,
+    IDoctorDashboardService doctorDashboardService,
     IDoctorScheduleSlotService scheduleSlotService,
     IEndpointAccessService accessService) : ControllerBase
 {
@@ -44,6 +45,264 @@ public class DoctorsController(
         return doctor is null
             ? NotFound(new { message = "Doctor was not found or is not publicly bookable." })
             : Ok(doctor);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpGet("me/profile")]
+    public async Task<IActionResult> GetMyProfile(CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var profile = await doctorDashboardService.GetOwnProfileAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        return profile is null
+            ? NotFound(new { message = "Doctor profile was not found." })
+            : Ok(profile);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpPut("me/profile")]
+    public async Task<IActionResult> UpdateMyProfile(
+        [FromBody] UpdateDoctorSelfProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorDashboardService.UpdateOwnProfileAsync(
+            currentUserId.Value,
+            new UpdateDoctorProfileCommand(request.PhoneNumber, request.Bio),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToDoctorDashboardErrorResponse(result.Message, result.FailureReason);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            profile = result.Profile
+        });
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpGet("me/appointments")]
+    public async Task<IActionResult> GetMyAppointments(CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var appointments = await doctorDashboardService.GetOwnAppointmentsAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        return Ok(appointments);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpGet("me/appointments/{appointmentId:guid}")]
+    public async Task<IActionResult> GetMyAppointment(
+        Guid appointmentId,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var appointment = await doctorDashboardService.GetOwnAppointmentByIdAsync(
+            currentUserId.Value,
+            appointmentId,
+            cancellationToken);
+
+        return appointment is null
+            ? NotFound(new { message = "Appointment was not found." })
+            : Ok(appointment);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpGet("me/appointment-requests")]
+    public async Task<IActionResult> GetMyAppointmentRequests(CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var appointments = await doctorDashboardService.GetOwnAppointmentRequestsAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        return Ok(appointments);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpPost("me/appointments/{appointmentId:guid}/accept")]
+    public async Task<IActionResult> AcceptMyAppointmentRequest(
+        Guid appointmentId,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorDashboardService.AcceptAppointmentRequestAsync(
+            currentUserId.Value,
+            appointmentId,
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToDoctorAppointmentActionErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            appointment = result.Appointment
+        });
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpPost("me/appointments/{appointmentId:guid}/reject")]
+    public async Task<IActionResult> RejectMyAppointmentRequest(
+        Guid appointmentId,
+        [FromBody] RejectAppointmentRequestReviewRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorDashboardService.RejectAppointmentRequestAsync(
+            currentUserId.Value,
+            appointmentId,
+            request.RejectionReason,
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToDoctorAppointmentActionErrorResponse(result);
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            appointment = result.Appointment
+        });
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpGet("me/dashboard")]
+    public async Task<IActionResult> GetMyDashboard(CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var dashboard = await doctorDashboardService.GetDashboardAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        return dashboard is null
+            ? NotFound(new { message = "Doctor profile was not found." })
+            : Ok(dashboard);
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpPost("me/avatar")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadMyAvatar(
+        [FromForm] UploadDoctorAvatarRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        if (request.File is null)
+        {
+            return BadRequest(new { message = "Doctor avatar file is required." });
+        }
+
+        await using var content = request.File.OpenReadStream();
+        var result = await doctorDashboardService.UploadAvatarAsync(
+            new UploadDoctorAvatarCommand(
+                currentUserId.Value,
+                request.File.FileName,
+                request.File.ContentType,
+                request.File.Length,
+                content),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return result.FailureReason switch
+            {
+                DoctorDashboardFailureReason.DoctorNotFound => NotFound(new { message = result.Message }),
+                _ => BadRequest(new { message = result.Message })
+            };
+        }
+
+        return Ok(new { avatarUrl = result.AvatarUrl });
+    }
+
+    [Authorize(Policy = AccessPolicies.ActiveDoctor)]
+    [HttpPost("me/public-profile/submit")]
+    public async Task<IActionResult> SubmitMyPublicProfileForReview(CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorDashboardService.SubmitPublicProfileForReviewAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return result.FailureReason switch
+            {
+                DoctorDashboardFailureReason.DoctorNotFound => NotFound(new { message = result.Message }),
+                DoctorDashboardFailureReason.InvalidStatus => Conflict(new { message = result.Message }),
+                _ => BadRequest(new
+                {
+                    message = result.Message,
+                    missingItems = result.MissingReadinessItems ?? []
+                })
+            };
+        }
+
+        return Ok(new
+        {
+            message = result.Message,
+            profile = result.Profile
+        });
     }
 
     [Authorize(Policy = AccessPolicies.ActiveDoctorStaffOrAdmin)]
@@ -205,6 +464,28 @@ public class DoctorsController(
             DoctorScheduleSlotFailureReason.SlotNotFound => NotFound(new { message = result.Message }),
             DoctorScheduleSlotFailureReason.Overlap => Conflict(new { message = result.Message }),
             DoctorScheduleSlotFailureReason.ActiveAppointmentsExist => Conflict(new { message = result.Message }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private IActionResult ToDoctorDashboardErrorResponse(
+        string message,
+        DoctorDashboardFailureReason? failureReason)
+    {
+        return failureReason switch
+        {
+            DoctorDashboardFailureReason.DoctorNotFound => NotFound(new { message }),
+            DoctorDashboardFailureReason.AppointmentNotFound => NotFound(new { message }),
+            _ => BadRequest(new { message })
+        };
+    }
+
+    private IActionResult ToDoctorAppointmentActionErrorResponse(DoctorAppointmentActionResult result)
+    {
+        return result.FailureReason switch
+        {
+            DoctorDashboardFailureReason.AppointmentNotFound => NotFound(new { message = result.Message }),
+            DoctorDashboardFailureReason.InvalidStatus => BadRequest(new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })
         };
     }

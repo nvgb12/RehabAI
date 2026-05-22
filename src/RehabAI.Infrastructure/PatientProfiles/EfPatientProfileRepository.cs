@@ -46,6 +46,36 @@ public sealed class EfPatientProfileRepository(AppDbContext dbContext) : IPatien
         return ToRecord(profile);
     }
 
+    public Task<PatientProfileRecord?> GetByUserIdAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        return GetByUserIdInternalAsync(userId, cancellationToken);
+    }
+
+    public async Task<string?> UpdateProfileImageAsync(
+        Guid patientProfileId,
+        string profileImageUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await dbContext.PatientProfiles
+            .SingleOrDefaultAsync(
+                profile => profile.Id == patientProfileId && !profile.IsDeleted,
+                cancellationToken);
+
+        if (profile is null)
+        {
+            return null;
+        }
+
+        profile.ProfileImageUrl = profileImageUrl;
+        profile.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return profile.ProfileImageUrl;
+    }
+
     private async Task<PatientProfileRecord?> GetByIdInternalAsync(
         Guid patientProfileId,
         CancellationToken cancellationToken)
@@ -55,6 +85,23 @@ public sealed class EfPatientProfileRepository(AppDbContext dbContext) : IPatien
             .SingleOrDefaultAsync(
                 profile =>
                     profile.Id == patientProfileId &&
+                    !profile.IsDeleted &&
+                    profile.User != null &&
+                    !profile.User.IsDeleted,
+                cancellationToken);
+
+        return profile is null ? null : ToRecord(profile);
+    }
+
+    private async Task<PatientProfileRecord?> GetByUserIdInternalAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var profile = await dbContext.PatientProfiles
+            .Include(profile => profile.User)
+            .SingleOrDefaultAsync(
+                profile =>
+                    profile.UserId == userId &&
                     !profile.IsDeleted &&
                     profile.User != null &&
                     !profile.User.IsDeleted,
@@ -73,6 +120,7 @@ public sealed class EfPatientProfileRepository(AppDbContext dbContext) : IPatien
             profile.User?.PhoneNumber,
             profile.DateOfBirth,
             profile.Gender,
-            profile.Address);
+            profile.Address,
+            profile.ProfileImageUrl);
     }
 }

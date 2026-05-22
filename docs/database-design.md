@@ -11,7 +11,7 @@ Status: pre-migration design, synced with SRS v6.9 admin-created doctors
 - Use soft delete for business-critical data.
 - Use relational lookup tables for roles, specialties, subscription plans, and payout items.
 - Store doctor credential/license files in private storage. Database stores metadata only.
-- Store token hashes, never raw email verification or password reset tokens.
+- Store token hashes in `UserTokens`, never raw email verification or password reset tokens. Development-only local test payloads may store raw helper tokens in `EmailLogs.MetadataJson`; this must remain disabled/null for production.
 - Payments use one shared table, but each payment must point to exactly one target.
 - `Users.Status` and roles are separate concepts:
   - status = account lifecycle
@@ -148,6 +148,7 @@ Rule:
 | DateOfBirth | date | Nullable |
 | Gender | nvarchar(30) | Nullable |
 | Address | nvarchar(500) | Nullable |
+| ProfileImageUrl | nvarchar(500) | Nullable, public local profile image path for MVP |
 | CreatedAt | datetimeoffset | Required |
 | UpdatedAt | datetimeoffset | Nullable |
 | IsDeleted | bit | Soft delete |
@@ -175,6 +176,11 @@ Rule:
 | Bio | nvarchar(max) | Nullable |
 | AvatarUrl | nvarchar(1000) | Nullable |
 | PublicProfileApproved | bit | Required |
+| PublicProfileReviewStatus | int | Required, Draft, Submitted, Approved, Rejected |
+| SubmittedForReviewAt | datetimeoffset | Nullable |
+| ReviewedAt | datetimeoffset | Nullable |
+| ReviewedByAdminId | uniqueidentifier | Nullable, Admin user id |
+| PublicProfileRejectionReason | nvarchar(1000) | Nullable, required when rejected |
 | CommissionRate | decimal(5,2) | Required |
 | CreatedAt | datetimeoffset | Required |
 | UpdatedAt | datetimeoffset | Nullable |
@@ -185,8 +191,11 @@ Public doctor visibility requires all of:
 ```text
 Users.Status = Active
 DoctorProfiles.PublicProfileApproved = true
-At least one DoctorScheduleSlot.Status = Available with StartTime > current time
+DoctorProfiles.PublicProfileReviewStatus = Approved
+DoctorProfiles.IsDeleted = false
 ```
+
+Available schedule slots are booking availability metadata. They are not required for public visibility after SRS v6.15; if no future available slot exists, Patients may still submit a flexible appointment request in a later booking slice.
 
 ## 5. Admin-Created Doctor Onboarding
 
@@ -295,7 +304,8 @@ and ReservedUntil is cleared.
 
 ### Appointments
 
-Appointments reference the source schedule slot, while also keeping time snapshots.
+Direct slot bookings reference the source schedule slot, while also keeping time snapshots.
+Flexible appointment requests do not reserve a schedule slot until a later scheduling decision, so the schedule slot FK is nullable.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -303,10 +313,10 @@ Appointments reference the source schedule slot, while also keeping time snapsho
 | PatientId | uniqueidentifier | FK Users.Id |
 | DoctorProfileId | uniqueidentifier | FK DoctorProfiles.Id |
 | MedicalServiceId | uniqueidentifier | FK MedicalServices.Id |
-| DoctorScheduleSlotId | uniqueidentifier | FK DoctorScheduleSlots.Id |
+| DoctorScheduleSlotId | uniqueidentifier | FK DoctorScheduleSlots.Id, nullable for flexible appointment requests |
 | StartTime | datetimeoffset | Snapshot |
 | EndTime | datetimeoffset | Snapshot |
-| Status | int | PendingPayment, Expired, Pending, Confirmed, Completed, Cancelled, NoShow |
+| Status | int | Requested, PendingPayment, Expired, Pending, Confirmed, Completed, Cancelled, NoShow, Rejected |
 | Notes | nvarchar(max) | Nullable |
 | CancellationReason | nvarchar(1000) | Nullable |
 | CancelledByUserId | uniqueidentifier | FK Users.Id, nullable |
@@ -319,6 +329,8 @@ Appointments reference the source schedule slot, while also keeping time snapsho
 State machine:
 
 ```text
+Requested -> PendingPayment
+Requested -> Rejected
 PendingPayment -> Expired
 PendingPayment -> Pending
 Pending -> Confirmed
@@ -326,6 +338,16 @@ Pending -> Cancelled
 Confirmed -> Completed
 Confirmed -> Cancelled
 Confirmed -> NoShow
+```
+
+Flexible appointment request rules:
+
+```text
+Patient submits request to an Active, Admin-approved public Doctor without selecting DoctorScheduleSlotId.
+Appointment.Status starts as Requested.
+Doctor acceptance moves Requested -> PendingPayment for the existing payment placeholder flow.
+Doctor rejection moves Requested -> Rejected.
+Rejected reason is stored in CancellationReason for the MVP.
 ```
 
 ### AppointmentStatusHistories
@@ -671,6 +693,7 @@ Tracks sending status for account verification, invitation password setup, appoi
 | TemplateName | nvarchar(100) | Required |
 | Status | nvarchar(50) | Pending, Sent, Failed |
 | ErrorMessage | nvarchar(max) | Nullable |
+| MetadataJson | nvarchar(max) | Nullable, Development-only payload for local test tokens/links; do not store production secrets |
 | SentAt | datetimeoffset | Nullable |
 | CreatedAt | datetimeoffset | Required |
 | UpdatedAt | datetimeoffset | Nullable |

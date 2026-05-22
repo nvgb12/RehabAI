@@ -40,7 +40,9 @@ public class AuthorizationMetadataTests
     [Theory]
     [InlineData(typeof(PatientsController), nameof(PatientsController.GetProfile))]
     [InlineData(typeof(PatientsController), nameof(PatientsController.UpdateProfile))]
+    [InlineData(typeof(PatientsController), nameof(PatientsController.UploadProfileImage))]
     [InlineData(typeof(AppointmentsController), nameof(AppointmentsController.CreateAppointment))]
+    [InlineData(typeof(AppointmentsController), nameof(AppointmentsController.CreateAppointmentRequest))]
     [InlineData(typeof(AppointmentsController), nameof(AppointmentsController.GetAppointment))]
     [InlineData(typeof(AppointmentsController), nameof(AppointmentsController.GetPatientAppointments))]
     [InlineData(typeof(CommerceController), nameof(CommerceController.PlaceOrder))]
@@ -70,6 +72,23 @@ public class AuthorizationMetadataTests
         Assert.Contains(
             GetAuthorizeAttributes(typeof(DoctorsController), methodName),
             attribute => attribute.Policy == AccessPolicies.ActiveDoctorStaffOrAdmin);
+    }
+
+    [Theory]
+    [InlineData(nameof(DoctorsController.GetMyProfile))]
+    [InlineData(nameof(DoctorsController.UpdateMyProfile))]
+    [InlineData(nameof(DoctorsController.GetMyAppointments))]
+    [InlineData(nameof(DoctorsController.GetMyAppointment))]
+    [InlineData(nameof(DoctorsController.GetMyAppointmentRequests))]
+    [InlineData(nameof(DoctorsController.AcceptMyAppointmentRequest))]
+    [InlineData(nameof(DoctorsController.RejectMyAppointmentRequest))]
+    [InlineData(nameof(DoctorsController.GetMyDashboard))]
+    [InlineData(nameof(DoctorsController.UploadMyAvatar))]
+    public void DoctorSelfServiceEndpoints_RequireActiveDoctorPolicy(string methodName)
+    {
+        Assert.Contains(
+            GetAuthorizeAttributes(typeof(DoctorsController), methodName),
+            attribute => attribute.Policy == AccessPolicies.ActiveDoctor);
     }
 
     private static IReadOnlyList<AuthorizeAttribute> GetAuthorizeAttributes(

@@ -4,6 +4,7 @@ export interface JwtPayload {
   name?: string
   roles?: string[] | string
   patientProfileId?: string
+  doctorProfileId?: string
 }
 
 export function decodeJwtPayload(token: string): JwtPayload | null {

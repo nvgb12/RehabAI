@@ -64,6 +64,7 @@ public sealed class EfDoctorAccountRepository(AppDbContext dbContext) : IDoctorA
             SpecialtyId = account.SpecialtyId,
             Bio = account.Bio,
             PublicProfileApproved = false,
+            PublicProfileReviewStatus = DoctorProfileReviewStatus.Draft,
             CommissionRate = account.CommissionRate,
             CreatedAt = now
         };
@@ -114,27 +115,134 @@ public sealed class EfDoctorAccountRepository(AppDbContext dbContext) : IDoctorA
     public async Task<IReadOnlyList<AdminDoctorRecord>> GetAdminDoctorsAsync(
         CancellationToken cancellationToken = default)
     {
-        return await dbContext.DoctorProfiles
-            .AsNoTracking()
-            .Where(profile => !profile.IsDeleted && profile.User != null && !profile.User.IsDeleted)
+        return await BuildAdminDoctorQuery()
             .OrderByDescending(profile => profile.CreatedAt)
             .ThenBy(profile => profile.User!.FullName)
-            .Select(profile => new AdminDoctorRecord(
-                profile.Id,
-                profile.UserId,
-                profile.User!.FullName,
-                profile.User.Email,
-                profile.User.PhoneNumber,
-                profile.User.Status,
-                profile.User.EmailConfirmed,
-                profile.SpecialtyId,
-                profile.Specialty!.Name,
-                profile.Bio,
-                profile.PublicProfileApproved,
-                profile.CreatedAt,
-                profile.UpdatedAt,
-                profile.IsDeleted))
+            .Select(ToAdminDoctorRecordExpression())
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<AdminDoctorRecord?> GetAdminDoctorByIdAsync(
+        Guid doctorProfileId,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildAdminDoctorQuery()
+            .Where(profile => profile.Id == doctorProfileId)
+            .Select(ToAdminDoctorRecordExpression())
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<AdminDoctorRecord?> ApprovePublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        DateTimeOffset reviewedAt,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await dbContext.DoctorProfiles
+            .SingleOrDefaultAsync(
+                doctorProfile =>
+                    doctorProfile.Id == doctorProfileId &&
+                    !doctorProfile.IsDeleted,
+                cancellationToken);
+
+        if (profile is null)
+        {
+            return null;
+        }
+
+        profile.PublicProfileReviewStatus = DoctorProfileReviewStatus.Approved;
+        profile.PublicProfileApproved = true;
+        profile.ReviewedAt = reviewedAt;
+        profile.ReviewedByAdminId = adminUserId;
+        profile.PublicProfileRejectionReason = null;
+        profile.UpdatedAt = reviewedAt;
+
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            ActorUserId = adminUserId,
+            Action = "DoctorPublicProfileApproved",
+            EntityName = nameof(DoctorProfile),
+            EntityId = profile.Id,
+            MetadataJson = $$"""{"reviewStatus":"Approved","doctorProfileId":"{{profile.Id}}"}""",
+            CreatedAt = reviewedAt
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return await GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+    }
+
+    public async Task<AdminDoctorRecord?> RejectPublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        string rejectionReason,
+        DateTimeOffset reviewedAt,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await dbContext.DoctorProfiles
+            .SingleOrDefaultAsync(
+                doctorProfile =>
+                    doctorProfile.Id == doctorProfileId &&
+                    !doctorProfile.IsDeleted,
+                cancellationToken);
+
+        if (profile is null)
+        {
+            return null;
+        }
+
+        profile.PublicProfileReviewStatus = DoctorProfileReviewStatus.Rejected;
+        profile.PublicProfileApproved = false;
+        profile.ReviewedAt = reviewedAt;
+        profile.ReviewedByAdminId = adminUserId;
+        profile.PublicProfileRejectionReason = rejectionReason;
+        profile.UpdatedAt = reviewedAt;
+
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            ActorUserId = adminUserId,
+            Action = "DoctorPublicProfileRejected",
+            EntityName = nameof(DoctorProfile),
+            EntityId = profile.Id,
+            MetadataJson = $$"""{"reviewStatus":"Rejected","doctorProfileId":"{{profile.Id}}"}""",
+            CreatedAt = reviewedAt
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return await GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+    }
+
+    private IQueryable<DoctorProfile> BuildAdminDoctorQuery()
+    {
+        return dbContext.DoctorProfiles
+            .AsNoTracking()
+            .Where(profile => !profile.IsDeleted && profile.User != null && !profile.User.IsDeleted);
+    }
+
+    private static System.Linq.Expressions.Expression<Func<DoctorProfile, AdminDoctorRecord>> ToAdminDoctorRecordExpression()
+    {
+        return profile => new AdminDoctorRecord(
+            profile.Id,
+            profile.UserId,
+            profile.User!.FullName,
+            profile.User.Email,
+            profile.User.PhoneNumber,
+            profile.User.Status,
+            profile.User.EmailConfirmed,
+            profile.SpecialtyId,
+            profile.Specialty!.Name,
+            profile.Bio,
+            profile.AvatarUrl,
+            profile.PublicProfileApproved,
+            profile.PublicProfileReviewStatus,
+            profile.SubmittedForReviewAt,
+            profile.ReviewedAt,
+            profile.ReviewedByAdminId,
+            profile.PublicProfileRejectionReason,
+            profile.CreatedAt,
+            profile.UpdatedAt,
+            profile.IsDeleted);
     }
 
     public async Task MarkInvitationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)

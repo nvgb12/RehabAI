@@ -43,6 +43,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IAppointmentBookingService, AppointmentBookingService>();
         services.AddScoped<IDoctorService, DoctorService>();
+        services.AddScoped<IDoctorDashboardService, DoctorDashboardService>();
         services.AddScoped<IPublicDoctorListingService, PublicDoctorListingService>();
         services.AddScoped<IDoctorScheduleSlotService, DoctorScheduleSlotService>();
         services.AddScoped<ILookupService, LookupService>();
@@ -55,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<IPatientRegistrationRepository, EfPatientRegistrationRepository>();
         services.AddScoped<IUserAuthenticationRepository, EfPatientRegistrationRepository>();
         services.AddScoped<IDoctorAccountRepository, EfDoctorAccountRepository>();
+        services.AddScoped<IDoctorDashboardRepository, EfDoctorDashboardRepository>();
         services.AddScoped<IPublicDoctorListingRepository, EfPublicDoctorListingRepository>();
         services.AddScoped<IDoctorScheduleSlotRepository, EfDoctorScheduleSlotRepository>();
         services.AddScoped<ILookupRepository, EfLookupRepository>();
@@ -62,6 +64,8 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentBookingRepository, EfAppointmentBookingRepository>();
         services.AddScoped<IOrderRepository, EfOrderRepository>();
         services.AddScoped<IPatientProfileRepository, EfPatientProfileRepository>();
+        services.AddScoped<IProfileImageStorage, LocalProfileImageStorage>();
+        services.AddScoped<IDoctorAvatarStorage, LocalDoctorAvatarStorage>();
         services.AddScoped<IProductRepository, EfProductRepository>();
         services.AddScoped<IRevenueReportRepository, EfRevenueReportRepository>();
         services.AddScoped<ISubscriptionRepository, EfSubscriptionRepository>();

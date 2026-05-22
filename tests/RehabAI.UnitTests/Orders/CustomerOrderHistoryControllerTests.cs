@@ -259,6 +259,13 @@ public class CustomerOrderHistoryControllerTests
             return Task.FromResult(true);
         }
 
+        public Task<Guid?> GetPatientProfileIdForUserAsync(
+            Guid userId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Guid?>(Guid.NewGuid());
+        }
+
         public Task<bool> AppointmentBelongsToUserAsync(
             Guid userId,
             Guid appointmentId,

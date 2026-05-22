@@ -85,6 +85,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithOne(user => user.PatientProfile)
             .HasForeignKey<PatientProfile>(profile => profile.UserId);
 
+        modelBuilder.Entity<PatientProfile>()
+            .Property(profile => profile.ProfileImageUrl)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<DoctorProfile>()
+            .Property(profile => profile.PublicProfileRejectionReason)
+            .HasMaxLength(1000);
+
         modelBuilder.Entity<DoctorCredentialDocument>()
             .HasOne(document => document.DoctorProfile)
             .WithMany(profile => profile.CredentialDocuments)
@@ -115,6 +123,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(appointment => appointment.DoctorScheduleSlot)
             .WithMany()
             .HasForeignKey(appointment => appointment.DoctorScheduleSlotId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<RehabAI.Domain.Entities.Payment>()

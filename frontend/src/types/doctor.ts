@@ -27,3 +27,88 @@ export interface DoctorScheduleSlot {
   createdByUserId?: string | null
   updatedByUserId?: string | null
 }
+
+export interface DoctorSelfProfile {
+  doctorProfileId: string
+  userId: string
+  fullName: string
+  email: string
+  phoneNumber?: string | null
+  status: string
+  emailConfirmed: boolean
+  specialtyId: string
+  specialtyName: string
+  bio?: string | null
+  yearsOfExperience?: number | null
+  publicProfileApproved: boolean
+  avatarUrl?: string | null
+  profileImageUrl?: string | null
+  createdAt: string
+  updatedAt?: string | null
+}
+
+export interface UpdateDoctorProfileRequest {
+  phoneNumber?: string | null
+  bio?: string | null
+  yearsOfExperience?: number | null
+}
+
+export interface UpdateDoctorProfileResponse {
+  message: string
+  profile: DoctorSelfProfile
+}
+
+export interface DoctorAppointment {
+  appointmentId: string
+  patientProfileId: string
+  patientName: string
+  medicalServiceId: string
+  medicalServiceName: string
+  doctorScheduleSlotId: string
+  startTime: string
+  endTime: string
+  status: string
+  paymentStatus?: string | null
+  notes?: string | null
+  reason?: string | null
+  createdAt: string
+}
+
+export interface DoctorNextAppointment {
+  appointmentId: string
+  patientName: string
+  medicalServiceName: string
+  startTime: string
+  status: string
+}
+
+export interface DoctorDashboardSummary {
+  doctorProfileId: string
+  fullName: string
+  publicProfileApproved: boolean
+  upcomingAppointmentCount: number
+  todayAppointmentCount: number
+  availableSlotCount: number
+  bookedSlotCount: number
+  nextAppointment?: DoctorNextAppointment | null
+}
+
+export interface CreateDoctorScheduleSlotRequest {
+  startTime: string
+  endTime: string
+}
+
+export interface UpdateDoctorScheduleSlotRequest {
+  startTime: string
+  endTime: string
+  status: string
+}
+
+export interface DoctorScheduleSlotActionResponse {
+  message: string
+  slot: DoctorScheduleSlot
+}
+
+export interface DoctorAvatarUploadResponse {
+  avatarUrl: string
+}

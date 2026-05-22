@@ -84,7 +84,7 @@ namespace RehabAI.Infrastructure.Database.Migrations
                     b.Property<Guid>("DoctorProfileId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("DoctorScheduleSlotId")
+                    b.Property<Guid?>("DoctorScheduleSlotId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset>("EndTime")
@@ -402,8 +402,24 @@ namespace RehabAI.Infrastructure.Database.Migrations
                     b.Property<bool>("PublicProfileApproved")
                         .HasColumnType("bit");
 
+                    b.Property<string>("PublicProfileRejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("PublicProfileReviewStatus")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ReviewedByAdminId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("SpecialtyId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("SubmittedForReviewAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
@@ -513,6 +529,9 @@ namespace RehabAI.Infrastructure.Database.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTimeOffset?>("SentAt")
                         .HasColumnType("datetimeoffset");
@@ -707,6 +726,10 @@ namespace RehabAI.Infrastructure.Database.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<string>("ProfileImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
@@ -1373,8 +1396,7 @@ namespace RehabAI.Infrastructure.Database.Migrations
                     b.HasOne("RehabAI.Domain.Entities.DoctorScheduleSlot", "DoctorScheduleSlot")
                         .WithMany()
                         .HasForeignKey("DoctorScheduleSlotId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("DoctorScheduleSlot");
                 });
