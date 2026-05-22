@@ -144,6 +144,28 @@ public class AdminMedicalServiceControllerTests
             return Task.FromResult<IReadOnlyList<AdminDoctorResponse>>([]);
         }
 
+        public Task<AdminDoctorResponse?> GetAdminDoctorByIdAsync(Guid doctorProfileId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<AdminDoctorResponse?>(null);
+        }
+
+        public Task<AdminDoctorPublicProfileReviewResult> ApprovePublicProfileAsync(
+            Guid doctorProfileId,
+            Guid adminUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new AdminDoctorPublicProfileReviewResult(false, "Not used."));
+        }
+
+        public Task<AdminDoctorPublicProfileReviewResult> RejectPublicProfileAsync(
+            Guid doctorProfileId,
+            Guid adminUserId,
+            string rejectionReason,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new AdminDoctorPublicProfileReviewResult(false, "Not used."));
+        }
+
         public Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;

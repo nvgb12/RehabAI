@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RehabAI.Api.Authorization;
@@ -32,6 +33,16 @@ public class AdminController(
         return Ok(doctors);
     }
 
+    [HttpGet("doctors/{doctorProfileId:guid}")]
+    public async Task<IActionResult> GetDoctor(Guid doctorProfileId, CancellationToken cancellationToken)
+    {
+        var doctor = await doctorService.GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+
+        return doctor is null
+            ? NotFound(new { message = "Doctor profile was not found." })
+            : Ok(doctor);
+    }
+
     [HttpPost("doctors")]
     public async Task<IActionResult> CreateDoctor(CreateDoctorRequest request, CancellationToken cancellationToken)
     {
@@ -60,6 +71,50 @@ public class AdminController(
         }
 
         return Ok(BuildCreateDoctorResponse(result));
+    }
+
+    [HttpPost("doctors/{doctorProfileId:guid}/public-profile/approve")]
+    public async Task<IActionResult> ApproveDoctorPublicProfile(
+        Guid doctorProfileId,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorService.ApprovePublicProfileAsync(
+            doctorProfileId,
+            currentUserId.Value,
+            cancellationToken);
+
+        return result.Succeeded
+            ? Ok(new { message = result.Message, doctor = result.Doctor })
+            : ToDoctorPublicProfileReviewErrorResponse(result);
+    }
+
+    [HttpPost("doctors/{doctorProfileId:guid}/public-profile/reject")]
+    public async Task<IActionResult> RejectDoctorPublicProfile(
+        Guid doctorProfileId,
+        RejectDoctorPublicProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var result = await doctorService.RejectPublicProfileAsync(
+            doctorProfileId,
+            currentUserId.Value,
+            request.RejectionReason,
+            cancellationToken);
+
+        return result.Succeeded
+            ? Ok(new { message = result.Message, doctor = result.Doctor })
+            : ToDoctorPublicProfileReviewErrorResponse(result);
     }
 
     [HttpPost("medical-services")]
@@ -385,5 +440,24 @@ public class AdminController(
             RevenueReportFailureReason.Validation => BadRequest(new { message = result.Message }),
             _ => BadRequest(new { message = result.Message })
         };
+    }
+
+    private IActionResult ToDoctorPublicProfileReviewErrorResponse(AdminDoctorPublicProfileReviewResult result)
+    {
+        return result.FailureReason switch
+        {
+            AdminDoctorPublicProfileReviewFailureReason.DoctorNotFound => NotFound(new { message = result.Message }),
+            AdminDoctorPublicProfileReviewFailureReason.InvalidStatus => Conflict(new { message = result.Message, doctor = result.Doctor }),
+            _ => BadRequest(new { message = result.Message })
+        };
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claimValue =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        return Guid.TryParse(claimValue, out var userId) ? userId : null;
     }
 }

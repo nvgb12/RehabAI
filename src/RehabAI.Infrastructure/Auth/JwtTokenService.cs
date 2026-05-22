@@ -45,6 +45,11 @@ public sealed class JwtTokenService(IConfiguration configuration) : IJwtTokenSer
             payload["patientProfileId"] = user.PatientProfileId.Value.ToString();
         }
 
+        if (user.DoctorProfileId is not null)
+        {
+            payload["doctorProfileId"] = user.DoctorProfileId.Value.ToString();
+        }
+
         var encodedHeader = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
         var encodedPayload = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(payload));
         var unsignedToken = $"{encodedHeader}.{encodedPayload}";

@@ -1,6 +1,7 @@
 using System.Net.Mail;
 using RehabAI.Application.Auth;
 using RehabAI.Application.Emails;
+using RehabAI.Domain.Enums;
 
 namespace RehabAI.Application.Doctors;
 
@@ -114,27 +115,199 @@ public sealed class DoctorService(
         var doctors = await doctorAccountRepository.GetAdminDoctorsAsync(cancellationToken);
 
         return doctors
-            .Select(doctor => new AdminDoctorResponse(
-                doctor.DoctorProfileId,
-                doctor.UserId,
-                doctor.FullName,
-                doctor.Email,
-                doctor.PhoneNumber,
-                doctor.Status.ToString(),
-                doctor.EmailConfirmed,
-                doctor.SpecialtyId,
-                doctor.SpecialtyName,
-                doctor.Bio,
-                doctor.PublicProfileApproved,
-                doctor.CreatedAt,
-                doctor.UpdatedAt,
-                doctor.IsDeleted))
+            .Select(ToAdminDoctorResponse)
             .ToList();
+    }
+
+    public async Task<AdminDoctorResponse?> GetAdminDoctorByIdAsync(
+        Guid doctorProfileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (doctorProfileId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var doctor = await doctorAccountRepository.GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+
+        return doctor is null ? null : ToAdminDoctorResponse(doctor);
+    }
+
+    public async Task<AdminDoctorPublicProfileReviewResult> ApprovePublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (doctorProfileId == Guid.Empty || adminUserId == Guid.Empty)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile and Admin user are required.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.Validation);
+        }
+
+        var existing = await doctorAccountRepository.GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+        if (existing is null)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile was not found.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.DoctorNotFound);
+        }
+
+        if (existing.PublicProfileReviewStatus != DoctorProfileReviewStatus.Submitted)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Only submitted Doctor public profiles can be approved.",
+                ToAdminDoctorResponse(existing),
+                AdminDoctorPublicProfileReviewFailureReason.InvalidStatus);
+        }
+
+        var updated = await doctorAccountRepository.ApprovePublicProfileAsync(
+            doctorProfileId,
+            adminUserId,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+
+        return updated is null
+            ? new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile was not found.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.DoctorNotFound)
+            : new AdminDoctorPublicProfileReviewResult(
+                true,
+                "Doctor public profile approved.",
+                ToAdminDoctorResponse(updated));
+    }
+
+    public async Task<AdminDoctorPublicProfileReviewResult> RejectPublicProfileAsync(
+        Guid doctorProfileId,
+        Guid adminUserId,
+        string rejectionReason,
+        CancellationToken cancellationToken = default)
+    {
+        if (doctorProfileId == Guid.Empty || adminUserId == Guid.Empty)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile and Admin user are required.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.Validation);
+        }
+
+        if (string.IsNullOrWhiteSpace(rejectionReason))
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Rejection reason is required.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.Validation);
+        }
+
+        var existing = await doctorAccountRepository.GetAdminDoctorByIdAsync(doctorProfileId, cancellationToken);
+        if (existing is null)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile was not found.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.DoctorNotFound);
+        }
+
+        if (existing.PublicProfileReviewStatus != DoctorProfileReviewStatus.Submitted)
+        {
+            return new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Only submitted Doctor public profiles can be rejected.",
+                ToAdminDoctorResponse(existing),
+                AdminDoctorPublicProfileReviewFailureReason.InvalidStatus);
+        }
+
+        var updated = await doctorAccountRepository.RejectPublicProfileAsync(
+            doctorProfileId,
+            adminUserId,
+            NormalizeOptional(rejectionReason)!,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+
+        return updated is null
+            ? new AdminDoctorPublicProfileReviewResult(
+                false,
+                "Doctor profile was not found.",
+                FailureReason: AdminDoctorPublicProfileReviewFailureReason.DoctorNotFound)
+            : new AdminDoctorPublicProfileReviewResult(
+                true,
+                "Doctor public profile rejected.",
+                ToAdminDoctorResponse(updated));
     }
 
     public Task ResendInvitationAsync(Guid doctorProfileId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException("Resend invitation is not part of the current Admin-created Doctor account MVP task.");
+    }
+
+    private static AdminDoctorResponse ToAdminDoctorResponse(AdminDoctorRecord doctor)
+    {
+        var missingItems = GetPublicProfileMissingItems(doctor);
+
+        return new AdminDoctorResponse(
+            doctor.DoctorProfileId,
+            doctor.UserId,
+            doctor.FullName,
+            doctor.Email,
+            doctor.PhoneNumber,
+            doctor.Status.ToString(),
+            doctor.EmailConfirmed,
+            doctor.SpecialtyId,
+            doctor.SpecialtyName,
+            doctor.Bio,
+            doctor.AvatarUrl,
+            doctor.PublicProfileApproved,
+            doctor.PublicProfileReviewStatus.ToString(),
+            doctor.SubmittedForReviewAt,
+            doctor.ReviewedAt,
+            doctor.ReviewedByAdminId,
+            doctor.PublicProfileRejectionReason,
+            missingItems.Count == 0,
+            missingItems,
+            doctor.CreatedAt,
+            doctor.UpdatedAt,
+            doctor.IsDeleted);
+    }
+
+    private static IReadOnlyList<string> GetPublicProfileMissingItems(AdminDoctorRecord doctor)
+    {
+        var missingItems = new List<string>();
+
+        if (doctor.Status != AccountStatus.Active)
+        {
+            missingItems.Add("Active account status");
+        }
+
+        if (!doctor.EmailConfirmed)
+        {
+            missingItems.Add("Confirmed email");
+        }
+
+        if (doctor.SpecialtyId == Guid.Empty)
+        {
+            missingItems.Add("Specialty");
+        }
+
+        if (string.IsNullOrWhiteSpace(doctor.PhoneNumber))
+        {
+            missingItems.Add("Phone number");
+        }
+
+        if (string.IsNullOrWhiteSpace(doctor.Bio))
+        {
+            missingItems.Add("Bio");
+        }
+
+        if (string.IsNullOrWhiteSpace(doctor.AvatarUrl))
+        {
+            missingItems.Add("Avatar/profile image");
+        }
+
+        return missingItems;
     }
 
     private static string? ValidateCreateDoctorCommand(CreateDoctorCommand command)

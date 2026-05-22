@@ -54,6 +54,11 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
             .Select(profile => (Guid?)profile.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
+        var doctorProfileId = await dbContext.DoctorProfiles
+            .Where(profile => profile.UserId == user.Id && !profile.IsDeleted)
+            .Select(profile => (Guid?)profile.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
         return new UserAuthenticationRecord(
             user.Id,
             user.Email,
@@ -61,7 +66,8 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
             user.PasswordHash,
             user.Status,
             user.Roles,
-            patientProfileId);
+            patientProfileId,
+            doctorProfileId);
     }
 
     public async Task<PendingPatientRegistrationResult> CreatePendingPatientAsync(
@@ -194,10 +200,124 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<PasswordResetUserRecord?> GetEligiblePasswordResetUserAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Users
+            .Where(user =>
+                user.Email == normalizedEmail &&
+                !user.IsDeleted &&
+                user.Status == AccountStatus.Active &&
+                user.EmailConfirmed)
+            .Select(user => new PasswordResetUserRecord(
+                user.Id,
+                user.Email,
+                user.FullName))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<Guid?> CreatePasswordResetAsync(
+        PendingPasswordReset reset,
+        CancellationToken cancellationToken = default)
+    {
+        var userExists = await dbContext.Users.AnyAsync(
+            user =>
+                user.Id == reset.UserId &&
+                user.Email == reset.Email &&
+                !user.IsDeleted &&
+                user.Status == AccountStatus.Active &&
+                user.EmailConfirmed,
+            cancellationToken);
+
+        if (!userExists)
+        {
+            return null;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var token = new UserToken
+        {
+            UserId = reset.UserId,
+            TokenType = UserTokenType.PasswordReset,
+            TokenHash = reset.TokenHash,
+            ExpiresAt = reset.ExpiresAt,
+            CreatedAt = now
+        };
+
+        var emailLog = new EmailLog
+        {
+            UserId = reset.UserId,
+            ToEmail = reset.Email,
+            Subject = reset.EmailSubject,
+            TemplateName = reset.EmailTemplateName,
+            Status = string.IsNullOrWhiteSpace(reset.DevelopmentPayloadJson) ? "Pending" : "DevelopmentLogged",
+            MetadataJson = reset.DevelopmentPayloadJson,
+            CreatedAt = now
+        };
+
+        dbContext.UserTokens.Add(token);
+        dbContext.EmailLogs.Add(emailLog);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return emailLog.Id;
+    }
+
+    public async Task<IReadOnlyList<PasswordResetTokenRecord>> GetPasswordResetTokensAsync(
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.UserTokens
+            .Where(token =>
+                token.TokenType == UserTokenType.PasswordReset &&
+                !token.IsDeleted &&
+                token.User != null &&
+                !token.User.IsDeleted &&
+                token.User.Email == normalizedEmail)
+            .Select(token => new PasswordResetTokenRecord(
+                token.UserId,
+                token.Id,
+                token.User!.Email,
+                token.TokenHash,
+                token.ExpiresAt,
+                token.UsedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task CompletePasswordResetAsync(
+        Guid userId,
+        Guid tokenId,
+        string passwordHash,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = await dbContext.Users.SingleAsync(user => user.Id == userId && !user.IsDeleted, cancellationToken);
+        var token = await dbContext.UserTokens.SingleAsync(
+            token =>
+                token.Id == tokenId &&
+                token.UserId == userId &&
+                token.TokenType == UserTokenType.PasswordReset &&
+                !token.IsDeleted,
+            cancellationToken);
+
+        token.UsedAt = now;
+        token.UpdatedAt = now;
+        user.PasswordHash = passwordHash;
+        user.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task MarkVerificationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
     {
+        await MarkEmailSentAsync(emailLogId, cancellationToken);
+    }
+
+    public async Task MarkEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)
+    {
         var emailLog = await dbContext.EmailLogs.SingleAsync(log => log.Id == emailLogId, cancellationToken);
-        emailLog.Status = "Sent";
+        emailLog.Status = emailLog.MetadataJson is null ? "Sent" : "DevelopmentLogged";
         emailLog.SentAt = DateTimeOffset.UtcNow;
         emailLog.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -205,6 +325,14 @@ public sealed class EfPatientRegistrationRepository(AppDbContext dbContext) :
     }
 
     public async Task MarkVerificationEmailFailedAsync(
+        Guid emailLogId,
+        string errorMessage,
+        CancellationToken cancellationToken = default)
+    {
+        await MarkEmailFailedAsync(emailLogId, errorMessage, cancellationToken);
+    }
+
+    public async Task MarkEmailFailedAsync(
         Guid emailLogId,
         string errorMessage,
         CancellationToken cancellationToken = default)

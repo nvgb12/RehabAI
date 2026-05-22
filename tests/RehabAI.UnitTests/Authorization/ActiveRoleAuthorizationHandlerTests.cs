@@ -57,6 +57,48 @@ public class ActiveRoleAuthorizationHandlerTests
         Assert.False(context.HasSucceeded);
     }
 
+    [Fact]
+    public async Task HandleAsync_WhenAdminUsesPatientOnlyPolicy_Fails()
+    {
+        await using var dbContext = CreateDbContext();
+        var user = AddUser(dbContext, AccountStatus.Active, AccessPolicies.AdminRole);
+        var handler = new ActiveRoleAuthorizationHandler(dbContext);
+        var requirement = new ActiveRoleRequirement(AccessPolicies.PatientRole);
+        var context = CreateContext(user.Id, requirement);
+
+        await handler.HandleAsync(context);
+
+        Assert.False(context.HasSucceeded);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenUserIsActiveDoctor_SucceedsDoctorPolicy()
+    {
+        await using var dbContext = CreateDbContext();
+        var user = AddUser(dbContext, AccountStatus.Active, AccessPolicies.DoctorRole);
+        var handler = new ActiveRoleAuthorizationHandler(dbContext);
+        var requirement = new ActiveRoleRequirement(AccessPolicies.DoctorRole);
+        var context = CreateContext(user.Id, requirement);
+
+        await handler.HandleAsync(context);
+
+        Assert.True(context.HasSucceeded);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenPatientUsesDoctorPolicy_Fails()
+    {
+        await using var dbContext = CreateDbContext();
+        var user = AddUser(dbContext, AccountStatus.Active, AccessPolicies.PatientRole);
+        var handler = new ActiveRoleAuthorizationHandler(dbContext);
+        var requirement = new ActiveRoleRequirement(AccessPolicies.DoctorRole);
+        var context = CreateContext(user.Id, requirement);
+
+        await handler.HandleAsync(context);
+
+        Assert.False(context.HasSucceeded);
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

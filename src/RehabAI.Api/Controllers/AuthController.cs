@@ -90,7 +90,8 @@ public class AuthController(IAuthService authService, IHostEnvironment hostEnvir
                 fullName = result.FullName,
                 roles = result.Roles,
                 accessToken = result.AccessToken,
-                patientProfileId = result.PatientProfileId
+                patientProfileId = result.PatientProfileId,
+                doctorProfileId = result.DoctorProfileId
             });
         }
 
@@ -127,14 +128,36 @@ public class AuthController(IAuthService authService, IHostEnvironment hostEnvir
     }
 
     [HttpPost("forgot-password")]
-    public IActionResult ForgotPassword(ForgotPasswordRequest request)
+    public async Task<IActionResult> ForgotPassword(
+        ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
     {
-        return Accepted(new { message = "UC-21 scaffolded: reset email will be sent if account is eligible.", request.Email });
+        var result = await authService.RequestPasswordResetAsync(
+            new RequestPasswordResetCommand(request.Email, hostEnvironment.IsDevelopment()),
+            cancellationToken);
+
+        return Accepted(new { message = result.Message });
     }
 
     [HttpPost("reset-password")]
-    public IActionResult ResetPassword(ResetPasswordRequest request)
+    public async Task<IActionResult> ResetPassword(
+        ResetPasswordRequest request,
+        CancellationToken cancellationToken)
     {
-        return Accepted(new { message = "UC-21 scaffolded: validate token and update password.", request.Email });
+        var result = await authService.ResetPasswordAsync(
+            new ResetPasswordCommand(request.Email, request.Token, request.NewPassword),
+            cancellationToken);
+
+        if (result.Succeeded)
+        {
+            return Ok(new { message = result.Message, email = result.Email });
+        }
+
+        return result.FailureReason switch
+        {
+            ResetPasswordFailureReason.ExpiredToken => StatusCode(StatusCodes.Status410Gone, new { message = result.Message, email = result.Email }),
+            ResetPasswordFailureReason.UsedToken => Conflict(new { message = result.Message, email = result.Email }),
+            _ => BadRequest(new { message = result.Message, email = result.Email })
+        };
     }
 }

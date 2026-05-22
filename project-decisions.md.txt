@@ -1,0 +1,34 @@
+# Rehab AI - Project Decisions
+
+## 2026-05 - Doctor Onboarding
+Doctors do not self-register.
+
+Guest registration creates Patient accounts only.
+
+Doctor accounts are created internally by Admin or delegated authorized staff.
+
+Doctor account lifecycle:
+1. Admin creates Doctor user.
+2. User.Status = PendingPasswordSetup.
+3. System sends DoctorInvitation token by email.
+4. Doctor sets password using single-use token.
+5. User.Status becomes Active after policy checks.
+6. Doctor appears publicly only after PublicProfileApproved = true and at least one future available schedule slot exists.
+
+## Patient Registration
+Patient flow:
+1. Guest registers.
+2. User.Status = PendingEmail.
+3. Email verification token is sent.
+4. Patient verifies email.
+5. User.Status = Active.
+
+## Database
+Use the latest `/docs/database-design.md` as source of truth for EF Core entities and migrations.
+
+## Not in MVP
+Phase 2:
+- Reviews
+- Disputes
+- Payouts
+- PayoutItems

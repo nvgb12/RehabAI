@@ -57,6 +57,51 @@ public class AppointmentsController(
             });
     }
 
+    [HttpPost("appointments/requests")]
+    public async Task<IActionResult> CreateAppointmentRequest(
+        [FromBody] CreateFlexibleAppointmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId is null)
+        {
+            return Unauthorized(new { message = "Authenticated user is required." });
+        }
+
+        var patientProfileId = await accessService.GetPatientProfileIdForUserAsync(
+            currentUserId.Value,
+            cancellationToken);
+
+        if (patientProfileId is null)
+        {
+            return Forbid();
+        }
+
+        var result = await appointmentBookingService.CreateRequestAsync(
+            new CreateAppointmentRequestCommand(
+                patientProfileId.Value,
+                request.DoctorProfileId,
+                request.MedicalServiceId,
+                request.PreferredStartTime,
+                request.PreferredEndTime,
+                request.Reason),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            return ToAppointmentErrorResponse(result);
+        }
+
+        return CreatedAtAction(
+            nameof(GetAppointment),
+            new { appointmentId = result.Appointment!.Id },
+            new
+            {
+                message = result.Message,
+                appointment = result.Appointment
+            });
+    }
+
     [HttpGet("appointments/{appointmentId:guid}")]
     public async Task<IActionResult> GetAppointment(Guid appointmentId, CancellationToken cancellationToken)
     {
@@ -167,9 +212,9 @@ public class AppointmentsController(
             AppointmentFailureReason.DoctorNotFound => NotFound(new { message = result.Message }),
             AppointmentFailureReason.DoctorNotPublicBookable => NotFound(new { message = result.Message }),
             AppointmentFailureReason.MedicalServiceNotFound => NotFound(new { message = result.Message }),
-            AppointmentFailureReason.SlotNotFound => NotFound(new { message = result.Message }),
-            AppointmentFailureReason.SlotUnavailable => Conflict(new { message = result.Message }),
-            AppointmentFailureReason.DoubleBooked => Conflict(new { message = result.Message }),
+            AppointmentFailureReason.SlotNotFound => BadRequest(new { message = result.Message }),
+            AppointmentFailureReason.SlotUnavailable => BadRequest(new { message = result.Message }),
+            AppointmentFailureReason.DoubleBooked => BadRequest(new { message = result.Message }),
             AppointmentFailureReason.AppointmentNotFound => NotFound(new { message = result.Message }),
             AppointmentFailureReason.AppointmentNotPendingPayment => Conflict(new { message = result.Message }),
             AppointmentFailureReason.AppointmentAlreadyCancelled => Conflict(new { message = result.Message }),

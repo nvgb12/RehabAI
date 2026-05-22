@@ -3,6 +3,7 @@ namespace RehabAI.Api.Authorization;
 public static class AccessPolicies
 {
     public const string ActivePatient = "ActivePatient";
+    public const string ActiveDoctor = "ActiveDoctor";
     public const string ActiveAdmin = "ActiveAdmin";
     public const string ActiveDoctorStaffOrAdmin = "ActiveDoctorStaffOrAdmin";
 

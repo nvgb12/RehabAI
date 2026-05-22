@@ -25,11 +25,86 @@ public class AdminDoctorListServiceTests
         Assert.Equal(repository.SpecialtyId, doctor.SpecialtyId);
         Assert.Equal("Stroke Rehabilitation", doctor.SpecialtyName);
         Assert.False(doctor.PublicProfileApproved);
+        Assert.Equal("Draft", doctor.PublicProfileReviewStatus);
+        Assert.False(doctor.IsPublicProfileReady);
+        Assert.Contains("Active account status", doctor.PublicProfileMissingItems);
         Assert.False(doctor.IsDeleted);
+    }
+
+    [Fact]
+    public async Task ApprovePublicProfileAsync_WhenSubmitted_ApprovesProfile()
+    {
+        var repository = new FakeDoctorAccountRepository(
+            AccountStatus.Active,
+            true,
+            "/uploads/doctor-avatars/doctor.png",
+            DoctorProfileReviewStatus.Submitted);
+        var service = new DoctorService(repository, new FakeSecureTokenService(), new FakeEmailSender());
+
+        var result = await service.ApprovePublicProfileAsync(
+            repository.DoctorProfileId,
+            Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Doctor);
+        Assert.True(result.Doctor.PublicProfileApproved);
+        Assert.Equal("Approved", result.Doctor.PublicProfileReviewStatus);
+    }
+
+    [Fact]
+    public async Task RejectPublicProfileAsync_WhenReasonMissing_ReturnsValidationFailure()
+    {
+        var repository = new FakeDoctorAccountRepository(
+            AccountStatus.Active,
+            true,
+            "/uploads/doctor-avatars/doctor.png",
+            DoctorProfileReviewStatus.Submitted);
+        var service = new DoctorService(repository, new FakeSecureTokenService(), new FakeEmailSender());
+
+        var result = await service.RejectPublicProfileAsync(
+            repository.DoctorProfileId,
+            Guid.NewGuid(),
+            " ",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AdminDoctorPublicProfileReviewFailureReason.Validation, result.FailureReason);
     }
 
     private sealed class FakeDoctorAccountRepository : IDoctorAccountRepository
     {
+        private AdminDoctorRecord doctor;
+
+        public FakeDoctorAccountRepository(
+            AccountStatus status = AccountStatus.PendingPasswordSetup,
+            bool emailConfirmed = false,
+            string? avatarUrl = null,
+            DoctorProfileReviewStatus reviewStatus = DoctorProfileReviewStatus.Draft)
+        {
+            doctor = new AdminDoctorRecord(
+                DoctorProfileId,
+                UserId,
+                "Dr Nguyen Stroke Rehab",
+                "doctor@test.com",
+                "0912345678",
+                status,
+                emailConfirmed,
+                SpecialtyId,
+                "Stroke Rehabilitation",
+                "Post-stroke rehabilitation doctor.",
+                avatarUrl,
+                reviewStatus == DoctorProfileReviewStatus.Approved,
+                reviewStatus,
+                reviewStatus == DoctorProfileReviewStatus.Submitted ? DateTimeOffset.UtcNow.AddHours(-1) : null,
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                null,
+                false);
+        }
+
         public Guid DoctorProfileId { get; } = Guid.NewGuid();
         public Guid UserId { get; } = Guid.NewGuid();
         public Guid SpecialtyId { get; } = Guid.NewGuid();
@@ -63,26 +138,60 @@ public class AdminDoctorListServiceTests
 
         public Task<IReadOnlyList<AdminDoctorRecord>> GetAdminDoctorsAsync(CancellationToken cancellationToken = default)
         {
-            IReadOnlyList<AdminDoctorRecord> doctors =
-            [
-                new AdminDoctorRecord(
-                    DoctorProfileId,
-                    UserId,
-                    "Dr Nguyen Stroke Rehab",
-                    "doctor@test.com",
-                    "0912345678",
-                    AccountStatus.PendingPasswordSetup,
-                    false,
-                    SpecialtyId,
-                    "Stroke Rehabilitation",
-                    "Post-stroke rehabilitation doctor.",
-                    false,
-                    DateTimeOffset.UtcNow,
-                    null,
-                    false)
-            ];
+            return Task.FromResult<IReadOnlyList<AdminDoctorRecord>>([doctor]);
+        }
 
-            return Task.FromResult(doctors);
+        public Task<AdminDoctorRecord?> GetAdminDoctorByIdAsync(Guid doctorProfileId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<AdminDoctorRecord?>(
+                doctorProfileId == DoctorProfileId ? doctor : null);
+        }
+
+        public Task<AdminDoctorRecord?> ApprovePublicProfileAsync(
+            Guid doctorProfileId,
+            Guid adminUserId,
+            DateTimeOffset reviewedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (doctorProfileId != DoctorProfileId)
+            {
+                return Task.FromResult<AdminDoctorRecord?>(null);
+            }
+
+            doctor = doctor with
+            {
+                PublicProfileApproved = true,
+                PublicProfileReviewStatus = DoctorProfileReviewStatus.Approved,
+                ReviewedAt = reviewedAt,
+                ReviewedByAdminId = adminUserId,
+                PublicProfileRejectionReason = null
+            };
+
+            return Task.FromResult<AdminDoctorRecord?>(doctor);
+        }
+
+        public Task<AdminDoctorRecord?> RejectPublicProfileAsync(
+            Guid doctorProfileId,
+            Guid adminUserId,
+            string rejectionReason,
+            DateTimeOffset reviewedAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (doctorProfileId != DoctorProfileId)
+            {
+                return Task.FromResult<AdminDoctorRecord?>(null);
+            }
+
+            doctor = doctor with
+            {
+                PublicProfileApproved = false,
+                PublicProfileReviewStatus = DoctorProfileReviewStatus.Rejected,
+                ReviewedAt = reviewedAt,
+                ReviewedByAdminId = adminUserId,
+                PublicProfileRejectionReason = rejectionReason
+            };
+
+            return Task.FromResult<AdminDoctorRecord?>(doctor);
         }
 
         public Task MarkInvitationEmailSentAsync(Guid emailLogId, CancellationToken cancellationToken = default)

@@ -6,8 +6,14 @@ import { AdminOrdersPage } from '../pages/AdminOrdersPage'
 import { AdminProductsPage } from '../pages/AdminProductsPage'
 import { AdminReportsPage } from '../pages/AdminReportsPage'
 import { AdminServicesPage } from '../pages/AdminServicesPage'
+import { DoctorAppointmentDetailPage } from '../pages/DoctorAppointmentDetailPage'
+import { DoctorAppointmentsPage } from '../pages/DoctorAppointmentsPage'
+import { DoctorDashboardPage } from '../pages/DoctorDashboardPage'
 import { DoctorDetailPage } from '../pages/DoctorDetailPage'
 import { DoctorListPage } from '../pages/DoctorListPage'
+import { DoctorProfilePage } from '../pages/DoctorProfilePage'
+import { DoctorSchedulePage } from '../pages/DoctorSchedulePage'
+import { DoctorSetupPasswordPage } from '../pages/DoctorSetupPasswordPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { PatientAppointmentsPage } from '../pages/PatientAppointmentsPage'
@@ -27,6 +33,7 @@ export function AppRoutes() {
         <Route index element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/doctor/setup-password" element={<DoctorSetupPasswordPage />} />
         <Route path="/products" element={<ProductListPage />} />
         <Route path="/products/:productId" element={<ProductDetailPage />} />
         <Route path="/doctors" element={<DoctorListPage />} />
@@ -127,6 +134,47 @@ export function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={['Admin']}>
               <AdminDoctorsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['Doctor']}>
+              <DoctorDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/doctor" element={<Navigate to="/doctor/dashboard" replace />} />
+        <Route
+          path="/doctor/profile"
+          element={
+            <ProtectedRoute allowedRoles={['Doctor']}>
+              <DoctorProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/schedule"
+          element={
+            <ProtectedRoute allowedRoles={['Doctor']}>
+              <DoctorSchedulePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/appointments"
+          element={
+            <ProtectedRoute allowedRoles={['Doctor']}>
+              <DoctorAppointmentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/appointments/:appointmentId"
+          element={
+            <ProtectedRoute allowedRoles={['Doctor']}>
+              <DoctorAppointmentDetailPage />
             </ProtectedRoute>
           }
         />

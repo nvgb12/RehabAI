@@ -15,6 +15,7 @@ This file records current implementation progress and environment state. It is d
 - Patient email verification MVP has been implemented using hashed token comparison and EF Core persistence updates.
 - Patient email verification is testable from Swagger in Development because `register-patient` returns the raw verification token only when the API environment is `Development`.
 - Patient email verification token matching has been hardened so token hashing is deterministic and separate from password hashing.
+- Forgot Password / Reset Password MVP has been implemented and made locally testable in Development through `EmailLogs.MetadataJson`.
 - Login MVP has been implemented for active verified users with password verification and a minimal JWT access token.
 - Admin-created Doctor account MVP has been implemented. Doctors do not self-register in the current implementation.
 - Doctor invitation password setup MVP has been implemented.
@@ -22,9 +23,13 @@ This file records current implementation progress and environment state. It is d
 - Doctor Schedule Slots MVP has been implemented according to UC-14 Manage Doctor Schedule.
 - Public/Searchable Doctor Listing MVP has been implemented.
 - Appointment Booking MVP has been implemented.
+- Direct Appointment Booking has been hardened so backend validation requires a selected future Available `DoctorScheduleSlot` that belongs to the requested Doctor, has no active appointment, and is not deleted; invalid direct slot booking now returns `400 Bad Request`.
+- Flexible Appointment Request Flow backend MVP has been implemented according to SRS v6.15. Patients can request appointments with approved public Doctors without selecting an available slot; Doctors can view, accept, or reject their own requests.
 - Payment Confirmation Placeholder MVP has been implemented for appointment web-flow testing without a real payment gateway.
 - Appointment Cancellation MVP has been implemented for cancelling booked or payment-pending appointments.
 - Patient Profile Management MVP has been implemented for viewing and updating existing Patient profile fields.
+- Patient Profile Avatar Upload MVP has been implemented for authenticated Active Patient users using local `wwwroot` storage.
+- EF Core migration `20260521091301_AddPatientProfileImageUrl` has been created and applied to the local `RehabAIDb` database.
 - Admin Product Management MVP has been implemented for hospital/platform-owned stroke rehabilitation products.
 - Public Product Listing MVP has been implemented for Guest/Patient browsing of active in-stock stroke rehabilitation products.
 - Order Creation MVP has been implemented for Patient product orders with stock-limit validation and PendingPayment status.
@@ -43,8 +48,16 @@ This file records current implementation progress and environment state. It is d
 - Subscription Action UI has been implemented in the React frontend through current subscription display, available plan cards, subscribe action, and subscription payment confirmation placeholder.
 - Admin Dashboard UI has been implemented in the React frontend for revenue summary, product management, order management, revenue reports, medical services, and Admin-created Doctor accounts.
 - Admin Doctor List API has been implemented for Admin viewing all non-deleted Doctor profiles, including Active and PendingPasswordSetup doctors.
+- Doctor Dashboard API MVP has been implemented for authenticated Active Doctor users.
+- Doctor login/JWT now includes `doctorProfileId` when the authenticated user has a non-deleted DoctorProfile.
+- Doctor Dashboard and Doctor Appointments backend query issue has been fixed; EF Core now filters appointments by DoctorProfileId in SQL first, materializes the narrowed list, and maps latest appointment payment status in memory.
+- Doctor Public Profile Review backend MVP has been implemented according to SRS v6.15.
+- EF Core migration `20260521150533_AddDoctorPublicProfileReview` has been created for Doctor public profile review status and review metadata.
+- EF Core migration `20260522035029_AddFlexibleAppointmentRequests` has been created and applied to local `RehabAIDb` for nullable `Appointments.DoctorScheduleSlotId` so flexible requests can exist without reserving schedule slots.
+- EF Core migration `20260522042223_AddEmailLogMetadataJson` has been created and applied to local `RehabAIDb` for Development-only email test payload metadata.
+- Doctor Frontend Flow MVP has been implemented in the React frontend for Doctor password setup, dashboard, profile, avatar upload, schedule management, and appointment review.
 - Supporting public lookup endpoints have been implemented for frontend dropdowns: `GET /api/specialties` and `GET /api/product-categories`.
-- SRS reference has been updated to the v6.11 shipping phases document at `D:\Rehab_AI_Use_Case_Specification_v6_11_shipping_phases.docx`.
+- SRS reference has been updated to the v6.15 Doctor public profile review submission document at `D:\Rehab_AI_Use_Case_Specification_v6_15_doctor_public_review_submission_update.docx`.
 - A Development-only Admin test account note has been added to `src/RehabAI.Api/appsettings.Development.json`.
 - Development-only Admin account seeding has been implemented in `DatabaseSeeder`; it reads `DevelopmentTestAccounts:Admin` and creates/repairs the configured Admin test account only when the API runs in Development.
 - Development Admin login was verified with `admin@test.com` / `Password@123`, and the resulting Admin token successfully accessed `GET /api/admin/orders`.
@@ -71,11 +84,14 @@ This file records current implementation progress and environment state. It is d
   - Aliases are configured for `/profile`, `/appointments`, `/my-orders`, and `/subscription`.
   - Patient protected pages use the existing JWT/localStorage auth helper and ProtectedRoute.
   - Login response and JWT now include `patientProfileId` for Patient accounts so the frontend can call route-based Patient profile and appointment APIs.
+  - Login response and JWT now include `doctorProfileId` for Doctor accounts when a DoctorProfile exists.
   - Patient Profile page calls `GET /api/patients/{patientProfileId}/profile`.
   - Patient Profile page now supports view/edit mode and calls `PUT /api/patients/{patientProfileId}/profile` for `fullName`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
+  - Patient profile responses now include `profileImageUrl`.
   - Doctor cards now link to `/doctors/{doctorProfileId}`.
   - Doctor Detail page calls `GET /api/doctors/{doctorProfileId}`, `GET /api/doctors/{doctorProfileId}/available-slots`, `GET /api/medical-services`, `POST /api/appointments`, and `POST /api/appointments/{appointmentId}/confirm-payment`.
   - Doctor Detail booking form uses stroke rehabilitation reason examples such as `Post-stroke rehabilitation consultation`, `Stroke mobility assessment`, `Neurological rehabilitation follow-up`, and `Stroke recovery therapy session`.
+  - Doctor Detail direct booking now disables the slot dropdown and submit button when no Available slots exist, clears stale slot selections when slot data reloads, and shows `Bác sĩ hiện chưa có lịch trống để đặt trực tiếp.`.
   - Patient Appointments page calls `GET /api/patients/{patientProfileId}/appointments`.
   - Patient Appointments page now shows status badges and action buttons for pending payment confirmation and cancellation through `POST /api/appointments/{appointmentId}/confirm-payment` and `POST /api/appointments/{appointmentId}/cancel`.
   - Product cards now link to `/products/{productId}`.
@@ -97,6 +113,45 @@ This file records current implementation progress and environment state. It is d
   - Admin Doctors page calls `GET /api/admin/doctors` to list all non-deleted Doctor profiles for Admin review.
   - Admin Doctors page calls `POST /api/admin/doctors` to create Admin-created Doctor accounts and displays the Development invitation token/setup URL when returned by the API.
   - Admin Doctors page refetches the Doctor list after a Doctor account is created.
+- Doctor Frontend Flow MVP:
+  - Public Doctor setup password route is implemented at `/doctor/setup-password`.
+  - Doctor protected routes are configured for `/doctor/dashboard`, `/doctor/profile`, `/doctor/schedule`, `/doctor/appointments`, and `/doctor/appointments/:appointmentId`.
+  - Doctor routes reuse the existing JWT/localStorage auth helper and `ProtectedRoute` with the `Doctor` role.
+  - Doctor login now redirects to `/doctor/dashboard` through the shared role-based default route helper.
+  - Doctor dashboard calls `GET /api/doctors/me/dashboard` and displays upcoming appointment count, today's appointment count, available slot count, booked slot count, public profile approval status, next appointment, and quick links.
+  - Doctor profile page calls `GET /api/doctors/me/profile`, supports safe edit fields through `PUT /api/doctors/me/profile`, and supports local avatar upload through `POST /api/doctors/me/avatar`.
+  - Doctor schedule page resolves the current DoctorProfile from `GET /api/doctors/me/profile`, then lists, creates, updates, and disables slots through the existing `/api/doctors/{doctorProfileId}/schedule-slots` APIs.
+  - Doctor appointment list and detail pages call `GET /api/doctors/me/appointments` and `GET /api/doctors/me/appointments/{appointmentId}`.
+  - Doctor appointment pages are read-only because Doctor-side confirm/cancel appointment actions are not part of the current backend API slice.
+  - The frontend Doctor setup route was smoke-tested in the browser, and protected Doctor routes redirect unauthenticated users to `/login`.
+- Doctor Dashboard API MVP:
+  - Endpoint: `GET /api/doctors/me/profile`.
+  - Endpoint: `PUT /api/doctors/me/profile`.
+  - Endpoint: `GET /api/doctors/me/appointments`.
+  - Endpoint: `GET /api/doctors/me/appointments/{appointmentId}`.
+  - Endpoint: `GET /api/doctors/me/dashboard`.
+  - Endpoint: `POST /api/doctors/me/avatar`.
+  - All Doctor self-service endpoints require the DB-backed `ActiveDoctor` policy.
+  - The current Doctor is resolved from the authenticated JWT/current-user claim; client-supplied DoctorProfile IDs are not accepted for `/me` routes.
+  - Doctor profile responses include safe account/profile fields only: `doctorProfileId`, `userId`, `fullName`, `email`, `phoneNumber`, `status`, `emailConfirmed`, `specialtyId`, `specialtyName`, `bio`, `yearsOfExperience`, `publicProfileApproved`, public review status/metadata, `avatarUrl`, `profileImageUrl`, `createdAt`, and `updatedAt`.
+  - Doctor profile update currently allows only `phoneNumber` and `bio`; role, status, specialty, and public approval remain Admin/system-controlled.
+  - Endpoint: `POST /api/doctors/me/public-profile/submit`.
+  - Doctor public profile submission requires Active account status, confirmed email, selected specialty, phone number, bio, and avatar/profile image.
+  - Submitted Doctor profiles move to `PublicProfileReviewStatus = Submitted` and remain `PublicProfileApproved = false` until Admin approval.
+  - Endpoint: `GET /api/admin/doctors/{doctorProfileId}`.
+  - Endpoint: `POST /api/admin/doctors/{doctorProfileId}/public-profile/approve`.
+  - Endpoint: `POST /api/admin/doctors/{doctorProfileId}/public-profile/reject`.
+  - Admin approval sets `PublicProfileReviewStatus = Approved`, `PublicProfileApproved = true`, review timestamp, and reviewer id.
+  - Admin rejection requires `rejectionReason`, sets `PublicProfileReviewStatus = Rejected`, `PublicProfileApproved = false`, stores the rejection reason, and allows Doctor correction/resubmission.
+  - Public Doctor listing now returns only Active + Approved + non-deleted Doctors, and future available schedule slots are no longer required for public visibility.
+  - Public Doctor listing persistence has been hardened to avoid EF Core translation failures by querying visible Doctors first, materializing that narrowed list, then querying future Available schedule slots separately for next-slot metadata.
+  - Doctor appointment list/detail returns only appointments assigned to the current DoctorProfile and returns `404 Not Found` for missing or non-owned appointments.
+  - Doctor dashboard summary returns profile identity, public approval state, upcoming/today appointment counts, future available/booked slot counts, and the next upcoming appointment when available.
+  - Doctor dashboard and appointment queries avoid EF Core translation failures by querying appointments and payments separately after SQL-side Doctor ownership filtering.
+  - Doctor appointment responses tolerate appointments with no linked payment and return `paymentStatus = null` instead of failing.
+  - Doctor avatar upload accepts multipart field `file` with JPG/JPEG/PNG/WEBP only and a 2MB size limit.
+  - Doctor avatar files are saved locally to `wwwroot/uploads/doctor-avatars`, and `DoctorProfiles.AvatarUrl` stores the public path.
+  - No new database migration was needed for Doctor avatar because `DoctorProfiles.AvatarUrl` already exists.
 - Supporting dropdown APIs:
   - `GET /api/specialties` returns active, non-deleted specialties with `id`, `name`, `slug`, and `description`.
   - `GET /api/product-categories` returns non-deleted product categories with `id`, `name`, `slug`, and `description`.
@@ -124,6 +179,7 @@ This file records current implementation progress and environment state. It is d
   - Protected policies require `Users.Status = Active`.
   - `PendingEmail`, `PendingPasswordSetup`, `Locked`, `Suspended`, and `Deactivated` users are blocked from normal protected endpoints even if they have a token.
   - `ActivePatient` policy is used for Patient-only web-flow endpoints.
+  - `ActiveDoctor` policy is used for Doctor self-service profile, appointment, dashboard, and avatar endpoints.
   - `ActiveAdmin` policy is used for Admin management/reporting endpoints.
   - `ActiveDoctorStaffOrAdmin` policy is used for Doctor schedule and credential scaffold endpoints.
   - Patient profile routes verify the route `patientProfileId` belongs to the current authenticated Patient before returning or updating profile data.
@@ -156,15 +212,33 @@ This file records current implementation progress and environment state. It is d
   - In Development only, `register-patient` returns raw verification token/setup helper info for Swagger testing.
   - Production must not expose raw tokens.
   - Flow has been tested with Swagger and SQL Server Management Studio.
+- Forgot Password / Reset Password MVP:
+  - Endpoint: `POST /api/Auth/forgot-password`.
+  - Endpoint: `POST /api/Auth/reset-password`.
+  - `forgot-password` keeps a generic `202 Accepted` response for all inputs to avoid account enumeration.
+  - Eligible users are active, email-confirmed, non-deleted accounts.
+  - Eligible requests create a `UserTokens` row with `TokenType = PasswordReset`, deterministic token hash, future `ExpiresAt`, `UsedAt = null`, and `IsDeleted = false`.
+  - Eligible requests create an `EmailLogs` row using subject `Reset your Rehab AI password` and template `PasswordReset`.
+  - `EmailLogs.MetadataJson` was added for local Development test payloads.
+  - In Development only, `MetadataJson` stores the raw reset token and Swagger-ready reset-password request payload.
+  - Production API responses do not expose raw reset tokens, and Production password reset email logs do not store the raw reset token payload.
+  - `reset-password` verifies email, raw token hash, token type, expiry, used state, and deletion state before updating the password hash.
+  - Successful reset marks the password reset token `UsedAt`.
+  - Invalid token returns `400 Bad Request`, reused token returns `409 Conflict`, and expired token returns `410 Gone`.
+  - Unit tests cover eligible token/log creation, generic forgot-password response, valid reset, reused token, invalid token, and expired token.
 - Patient Profile Management MVP:
   - Endpoint: `GET /api/patients/{patientProfileId}/profile`.
   - Endpoint: `PUT /api/patients/{patientProfileId}/profile`.
+  - Endpoint: `POST /api/patients/me/profile-image`.
   - Uses the existing `PatientProfiles` table/model.
-  - Profile detail returns safe profile/account fields only: `patientProfileId`, `userId`, `fullName`, `email`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
+  - Profile detail returns safe profile/account fields only: `patientProfileId`, `userId`, `fullName`, `email`, `phoneNumber`, `dateOfBirth`, `gender`, `address`, and `profileImageUrl`.
   - Profile detail does not expose `PasswordHash` or sensitive authentication data.
   - Update supports existing schema/account fields: `fullName`, `phoneNumber`, `dateOfBirth`, `gender`, and `address`.
   - `fullName` is required for profile update.
   - `email` is displayed but not editable from the Patient profile UI.
+  - Avatar upload uses the current JWT user and does not accept `patientProfileId` from the client.
+  - Avatar upload accepts multipart field `file` with JPG/JPEG/PNG/WEBP only and a 2MB size limit.
+  - Avatar files are saved to `wwwroot/uploads/profile-images` and `PatientProfiles.ProfileImageUrl` stores the returned public path.
   - Missing or deleted Patient profiles return `404 Not Found`.
   - Stroke-specific rehabilitation notes or condition notes are not in the current schema and should be added through a future migration if assigned.
 - Login MVP:
@@ -360,9 +434,11 @@ This file records current implementation progress and environment state. It is d
   - Endpoint: `GET /api/doctors`.
   - Endpoint: `GET /api/doctors/{doctorProfileId}`.
   - Guests and Patients can browse/search public bookable Doctors.
-  - Public listing returns only Doctors whose linked user is `Active`, has the `Doctor` role, has `DoctorProfile.PublicProfileApproved = true`, has a non-deleted profile, and has at least one future `Available` schedule slot.
-  - Doctors with `PendingPasswordSetup`, `PendingEmail`, `Locked`, `Suspended`, `Deactivated`, deleted profiles, no future available slot, or only disabled/booked/soft-reserved/past slots are excluded.
+  - Public listing returns only Doctors whose linked user is `Active`, has the `Doctor` role, has `DoctorProfile.PublicProfileApproved = true`, has `PublicProfileReviewStatus = Approved`, and has a non-deleted profile.
+  - Future available schedule slots are no longer required for public visibility after SRS v6.15; slots are returned only as availability metadata for direct booking.
+  - Doctors with `PendingPasswordSetup`, `PendingEmail`, `Locked`, `Suspended`, `Deactivated`, deleted profiles, or non-approved public profile review status are excluded.
   - Optional filters are supported for `keyword`, `specialtyId`, `availableFrom`, and `availableTo`.
+  - `availableFrom` and `availableTo` are used only when selecting next available slot metadata; they no longer hide approved Doctors that have no matching slot.
   - Public detail returns only if the Doctor is publicly bookable.
 - Appointment Booking MVP:
   - Endpoint: `POST /api/appointments`.
@@ -378,12 +454,13 @@ This file records current implementation progress and environment state. It is d
   - Booking requires a public bookable Doctor profile.
   - Booking requires an active, non-deleted Medical Service.
   - Booking requires a future, non-deleted, `Available` schedule slot belonging to the selected DoctorProfile.
+  - Booking rejects missing, wrong-doctor, past, unavailable, or already active-reserved/booked schedule slots with `400 Bad Request`.
   - Successful booking creates an `Appointment` with `Status = PendingPayment`.
   - Successful booking changes the schedule slot to `SoftReserved`.
   - Successful booking sets both `Appointment.SoftReservedUntil` and `DoctorScheduleSlots.ReservedUntil`.
   - Soft reservation duration uses `SystemSettings.Appointment.SoftReserveMinutes` when available, otherwise defaults to 10 minutes.
   - Appointment creation and slot update run in a database transaction.
-  - Booking the same slot again returns `409 Conflict` with `Schedule slot is not available for booking.`
+  - Booking the same slot again returns `400 Bad Request` with a clear schedule slot validation message.
   - Manual Swagger and SQL Server verification confirmed appointment booking works for stroke rehabilitation scenarios such as `Post-stroke rehabilitation consultation`.
 - Payment Confirmation Placeholder MVP:
   - Endpoint: `POST /api/appointments/{appointmentId}/confirm-payment`.
@@ -624,7 +701,8 @@ This file records current implementation progress and environment state. It is d
   - `GET /api/doctors` returns public bookable Doctor summaries
   - `GET /api/doctors/{doctorProfileId}` returns public Doctor detail only when the Doctor is publicly bookable
   - response includes `doctorProfileId`, `userId`, `fullName`, `specialtyId`, `specialtyName`, `bio`, `avatarUrl`, `nextAvailableSlotStartTime`, and `nextAvailableSlotEndTime`
-  - public eligibility requires linked `Users.Status = Active`, Doctor role, `DoctorProfiles.PublicProfileApproved = true`, non-deleted profile, and at least one future `Available` schedule slot
+  - public eligibility requires linked `Users.Status = Active`, Doctor role, `DoctorProfiles.PublicProfileApproved = true`, `PublicProfileReviewStatus = Approved`, and a non-deleted profile
+  - future `Available` schedule slots are optional for public visibility; when none exists, next available slot fields are returned as null
   - `keyword` filter searches Doctor full name and bio
   - `specialtyId` filter restricts results by specialty
   - `availableFrom` and `availableTo` restrict the next available slot window
@@ -638,7 +716,7 @@ This file records current implementation progress and environment state. It is d
 - Verified the Public/Searchable Doctor Listing endpoints against `RehabAIDb` through Swagger-style HTTP calls:
   - active Doctor with `PublicProfileApproved = true` and a future `Available` slot appeared
   - active Doctor with `PublicProfileApproved = false` did not appear
-  - Doctor with disabled slot only did not appear
+  - after SRS v6.15, approved public Doctors may appear even without a future available slot
   - `keyword` filter matched the public Doctor
   - `specialtyId` filter matched the public Doctor
   - `availableFrom`/`availableTo` filter matched the public Doctor
@@ -677,6 +755,28 @@ This file records current implementation progress and environment state. It is d
   - duplicate booking for the same slot returned `409 Conflict` with `Schedule slot is not available for booking.`
   - `GET /api/appointments/{appointmentId}` returned the created appointment
   - `GET /api/patients/{patientProfileId}/appointments` returned the Patient's appointment list
+- Implemented Flexible Appointment Request Flow backend MVP:
+  - `POST /api/appointments/requests` lets an authenticated Active Patient submit a request to an approved public Doctor without `doctorScheduleSlotId`
+  - request creation validates the current Patient from JWT/current-user context, active Patient role, active approved Doctor public profile, active Medical Service, future preferred time window, and required reason
+  - flexible appointment requests create `Appointments.Status = Requested`
+  - flexible appointment requests do not reserve or update a `DoctorScheduleSlot`
+  - `GET /api/doctors/me/appointment-requests` returns only the current Doctor's `Requested` appointments
+  - `POST /api/doctors/me/appointments/{appointmentId}/accept` lets the owning Active Doctor move a request from `Requested` to `PendingPayment`
+  - `POST /api/doctors/me/appointments/{appointmentId}/reject` lets the owning Active Doctor move a request from `Requested` to `Rejected`
+  - rejection reason is stored in `Appointments.CancellationReason` for the MVP because the current schema already has that patient-visible reason field
+  - Patient appointment history/detail includes `Requested` and `Rejected` records through the existing appointment history endpoints
+  - Direct slot booking remains unchanged and still requires a valid future Available slot
+  - EF Core migration `20260522035029_AddFlexibleAppointmentRequests` makes `Appointments.DoctorScheduleSlotId` nullable for request-based appointments and has been applied to local `RehabAIDb`
+- Added unit coverage for flexible appointment request behavior:
+  - Patient request creation succeeds without slots
+  - Patient request creation does not depend on slot availability
+  - unapproved Doctors, inactive Services, and invalid preferred time windows are rejected
+  - Doctor request listing returns requested appointments only
+  - Doctor accept moves request to `PendingPayment`
+  - Doctor reject moves request to `Rejected`
+  - Doctor cannot accept another Doctor's request
+  - Patient request creation endpoint requires the `ActivePatient` policy
+  - Doctor request review endpoints require the `ActiveDoctor` policy
   - test reason used stroke rehabilitation wording: `Post-stroke rehabilitation consultation`
 - Implemented Payment Confirmation Placeholder MVP:
   - `POST /api/appointments/{appointmentId}/confirm-payment` confirms a mock payment for an appointment
@@ -934,6 +1034,58 @@ swaggerVerifyEmailRequest
 
 These fields must not be exposed in Production.
 
+Forgot password local Development test steps:
+
+```text
+POST /api/auth/forgot-password
+```
+
+Example body:
+
+```json
+{
+  "email": "doctor_reuse_20260514210322@test.com"
+}
+```
+
+Expected response is always `202 Accepted` with a generic message. To retrieve the local raw reset token for Swagger testing, query the latest password reset email log in SSMS:
+
+```sql
+SELECT TOP 1 Id, ToEmail, TemplateName, Status, MetadataJson, CreatedAt, SentAt
+FROM EmailLogs
+WHERE ToEmail = 'doctor_reuse_20260514210322@test.com'
+  AND TemplateName = 'PasswordReset'
+  AND IsDeleted = 0
+ORDER BY CreatedAt DESC;
+```
+
+In Development, `MetadataJson` contains `resetToken` and `swaggerResetPasswordRequest`. `UserTokens.TokenHash` stores only the deterministic hash and never the raw token.
+
+Then call:
+
+```text
+POST /api/auth/reset-password
+```
+
+Example body:
+
+```json
+{
+  "email": "doctor_reuse_20260514210322@test.com",
+  "token": "RAW_RESET_TOKEN_FROM_METADATA_JSON",
+  "newPassword": "Password@123"
+}
+```
+
+Expected reset behavior:
+
+```text
+Valid token -> 200 OK and UserTokens.UsedAt is set
+Invalid token -> 400 Bad Request
+Used token -> 409 Conflict
+Expired token -> 410 Gone
+```
+
 Login endpoint:
 
 ```text
@@ -1059,6 +1211,7 @@ src/RehabAI.Application/Doctors/PublicDoctorContracts.cs
 src/RehabAI.Application/Doctors/PublicDoctorListingService.cs
 src/RehabAI.Infrastructure/Doctors/EfPublicDoctorListingRepository.cs
 src/RehabAI.Infrastructure/DependencyInjection.cs
+tests/RehabAI.UnitTests/Doctors/EfPublicDoctorListingRepositoryTests.cs
 tests/RehabAI.UnitTests/Doctors/PublicDoctorListingServiceTests.cs
 ```
 
@@ -1078,6 +1231,15 @@ availableFrom
 availableTo
 ```
 
+Current v6.15 behavior:
+
+```text
+Public visibility requires Active Doctor user + Doctor role + Approved public profile review + PublicProfileApproved + non-deleted records.
+Future Available schedule slots are not required for public Doctor visibility.
+availableFrom/availableTo filters are used only when calculating next available slot metadata for returned Doctors.
+Doctors with no Available slots still appear publicly after Admin approval.
+```
+
 Appointment Booking implementation files:
 
 ```text
@@ -1095,10 +1257,14 @@ Appointment Booking endpoints:
 
 ```text
 POST /api/appointments
+POST /api/appointments/requests
 POST /api/appointments/{appointmentId}/confirm-payment
 POST /api/appointments/{appointmentId}/cancel
 GET /api/appointments/{appointmentId}
 GET /api/patients/{patientProfileId}/appointments
+GET /api/doctors/me/appointment-requests
+POST /api/doctors/me/appointments/{appointmentId}/accept
+POST /api/doctors/me/appointments/{appointmentId}/reject
 ```
 
 Direct appointment booking request body:
@@ -1109,6 +1275,18 @@ Direct appointment booking request body:
   "doctorProfileId": "guid",
   "medicalServiceId": "guid",
   "scheduleSlotId": "guid",
+  "reason": "Post-stroke rehabilitation consultation"
+}
+```
+
+Flexible appointment request body:
+
+```json
+{
+  "doctorProfileId": "guid",
+  "medicalServiceId": "guid",
+  "preferredStartTime": "2026-05-25T09:00:00+07:00",
+  "preferredEndTime": "2026-05-25T10:00:00+07:00",
   "reason": "Post-stroke rehabilitation consultation"
 }
 ```
@@ -1145,7 +1323,10 @@ src/RehabAI.Api/Contracts/Patients/PatientProfileRequests.cs
 src/RehabAI.Application/PatientProfiles/PatientProfileContracts.cs
 src/RehabAI.Application/PatientProfiles/PatientProfileService.cs
 src/RehabAI.Infrastructure/PatientProfiles/EfPatientProfileRepository.cs
+src/RehabAI.Infrastructure/PatientProfiles/LocalProfileImageStorage.cs
 src/RehabAI.Infrastructure/DependencyInjection.cs
+src/RehabAI.Infrastructure/Database/Migrations/20260521091301_AddPatientProfileImageUrl.cs
+tests/RehabAI.UnitTests/PatientProfiles/PatientProfileControllerTests.cs
 tests/RehabAI.UnitTests/PatientProfiles/PatientProfileServiceTests.cs
 ```
 
@@ -1154,6 +1335,7 @@ Patient Profile Management endpoints:
 ```text
 GET /api/patients/{patientProfileId}/profile
 PUT /api/patients/{patientProfileId}/profile
+POST /api/patients/me/profile-image
 ```
 
 Patient profile update request body:
@@ -1449,11 +1631,18 @@ Public endpoints:
 - GET /api/medical-services/{id}
 
 ActivePatient policy endpoints:
-- Patient profile get/update
+- Patient profile get/update/avatar upload
 - Appointment create/detail/history/payment-placeholder/cancel
 - Product order create/detail/history/payment-placeholder
 - My order purchase history
 - Subscription current/subscribe/payment-placeholder
+
+ActiveDoctor policy endpoints:
+- Doctor self profile get/update
+- Doctor self appointment list/detail
+- Doctor dashboard summary
+- Doctor avatar upload
+- Doctor public profile submit for Admin review
 
 ActiveDoctorStaffOrAdmin policy endpoints:
 - Doctor schedule slot management
@@ -1463,6 +1652,8 @@ ActiveDoctorStaffOrAdmin policy endpoints:
 ActiveAdmin policy endpoints:
 - Admin-created Doctor account endpoint
 - Admin Doctor list endpoint
+- Admin Doctor detail endpoint
+- Admin Doctor public profile approve/reject endpoints
 - Admin Medical Services create/update/delete
 - Admin Product Management
 - Admin Order Management
@@ -1494,12 +1685,16 @@ ActiveAdmin policy endpoints:
 13. Test Subscription Purchase Placeholder in Swagger/UI with a logged-in Active Patient JWT.
 14. Implement Product Category management if Admin needs to create categories from the frontend.
 15. Test the Admin Doctor list in Swagger/UI with Active and PendingPasswordSetup doctors.
-16. Wire frontend Admin Doctor creation to `GET /api/specialties` if the UI should avoid manual `specialtyId` entry.
-17. Implement shipping/delivery tracking fields or workflow from the v6.11 SRS if assigned.
-18. Replace appointment/product/subscription payment confirmation placeholders with real payment initialization and verified payment webhook handling.
-19. Add refund/payment reversal handling for paid appointment cancellations and paid product orders.
-20. Add structured stroke rehabilitation Patient profile/intake fields in a future migration if assigned.
-21. AI chatbot and AI/subscription quota enforcement are handled by another team and should not be implemented unless assigned.
+16. Test Doctor Dashboard API in Swagger/UI with an Active Doctor JWT.
+17. Manually test the frontend Doctor flow with a real Active Doctor account: `/doctor/setup-password`, `/doctor/dashboard`, `/doctor/profile`, `/doctor/schedule`, `/doctor/appointments`, and `/doctor/appointments/{appointmentId}`.
+18. Wire frontend Doctor profile page to submit public profile review and display readiness/review status.
+19. Wire frontend Admin Doctors page to view Doctor detail and approve/reject submitted public profiles with rejection reason.
+20. Wire frontend Admin Doctor creation to `GET /api/specialties` if the UI should avoid manual `specialtyId` entry.
+21. Implement shipping/delivery tracking fields or workflow from the v6.11/v6.15 SRS if assigned.
+22. Replace appointment/product/subscription payment confirmation placeholders with real payment initialization and verified payment webhook handling.
+23. Add refund/payment reversal handling for paid appointment cancellations and paid product orders.
+24. Add structured stroke rehabilitation Patient profile/intake fields in a future migration if assigned.
+25. AI chatbot and AI/subscription quota enforcement are handled by another team and should not be implemented unless assigned.
 
 ## 8. Known Risks
 
@@ -1507,9 +1702,10 @@ ActiveAdmin policy endpoints:
 - The current database is an initial development database. Future schema changes should be made through new EF Core migrations, not manual SQL edits.
 - Seed data is currently inserted at API startup. The seed logic is idempotent, but production deployment should decide whether startup seeding remains acceptable or moves to an explicit deployment/admin initialization step.
 - Payment finalization rules depend on verified webhook handling, which still needs implementation.
-- Password reset still needs implementation.
+- Forgot Password / Reset Password MVP is implemented with placeholder email delivery. Production still needs a real reset URL/template and real email provider.
 - The verification email currently uses the placeholder email sender and includes a raw token in placeholder email content. A real frontend verification URL and production email provider are still needed.
 - Development registration responses intentionally expose the raw verification token for Swagger testing only. Production behavior was checked to avoid exposing token helper fields.
+- Development password reset stores raw reset token helper data in `EmailLogs.MetadataJson` for Swagger testing only. Production behavior must keep this payload null and must not expose raw reset tokens in API responses.
 - Development Doctor creation responses intentionally expose the raw invitation token for Swagger testing only. Production behavior must continue to avoid exposing invitation token helper fields.
 - `DevelopmentTestAccounts` in `appsettings.Development.json` is Development-only test configuration and should not be treated as production secret storage.
 - The Development Admin account is seeded at API startup only when the environment is Development. Production deployments must use a real admin provisioning path and secret management.
@@ -1529,17 +1725,23 @@ ActiveAdmin policy endpoints:
 - Subscription payment confirmation is a local placeholder. Production subscription activation should move to real payment initialization and verified payment webhook processing.
 - Subscription Purchase Placeholder does not implement AI quota enforcement, AI feature gating, or AI chatbot behavior; those remain assigned to the separate AI/subscription quota workstream.
 - Doctor Schedule Slots currently guard against active appointments during update/disable, but appointment booking/rescheduling workflows are not implemented yet.
-- Public Doctor listing is intentionally unauthenticated for Guests and Patients, but Admin-only profile approval management is not implemented yet.
+- Public Doctor listing is intentionally unauthenticated for Guests and Patients, and now requires Admin-approved public profile review status. Frontend Admin/Doctor review UI still needs to be wired to the new backend review endpoints.
 - Appointment Booking now moves slots to `SoftReserved`; payment webhook handling still needs to move successful appointments to `Pending` or `Confirmed` and slots to `Booked`.
+- Flexible Appointment Requests intentionally do not reserve Doctor schedule slots. Doctor acceptance currently moves a request to `PendingPayment` without assigning a slot; a later scheduling/rescheduling slice should decide whether accepted requests need explicit slot assignment or remain flexible consultation requests.
 - Payment Confirmation Placeholder can move appointments from `PendingPayment` to `Confirmed` for local web-flow testing, but production payment finalization still must happen through verified webhook handling.
 - Appointment Cancellation can cancel `Confirmed` appointments and release the slot, but refund/payment reversal logic is not implemented yet.
-- Patient Profile Management currently supports existing schema/account fields (`fullName`, `phoneNumber`, `dateOfBirth`, `gender`, `address`). Stroke-specific rehabilitation notes/intake fields require a future schema decision and migration.
+- Patient Profile Management currently supports existing schema/account fields (`fullName`, `phoneNumber`, `dateOfBirth`, `gender`, `address`, `profileImageUrl`). Stroke-specific rehabilitation notes/intake fields require a future schema decision and migration.
+- Patient profile images are stored locally under `wwwroot/uploads/profile-images` for MVP development only. Cloud/object storage, image scanning, CDN delivery, and old-image cleanup are not implemented yet.
+- Doctor self profile update currently supports only safe existing fields (`phoneNumber`, `bio`). `yearsOfExperience` is returned as `null` because the current `DoctorProfile` schema has no `YearsOfExperience` column.
+- Doctor Frontend Flow MVP is implemented, but data-backed manual testing still needs an Active Doctor account with appointments and schedule slots in the local database.
+- Doctor appointment frontend pages are read-only because the current backend Doctor self-service API does not include Doctor-side appointment confirm/cancel/update actions.
+- Doctor avatars are stored locally under `wwwroot/uploads/doctor-avatars` for MVP development only. Cloud/object storage, image scanning, CDN delivery, and old-image cleanup are not implemented yet.
 - Pending payment expiration is not implemented yet; expired appointments still need a background job or command to return slots to `Available` and clear `ReservedUntil`.
 - Appointment Booking request IDs must be valid GUID strings. Invalid GUID input, such as a copied `scheduleSlotId` with a missing character, is rejected by ASP.NET Core model binding before appointment business rules run.
 - `CreateDoctorRequest.YearsOfExperience` is accepted for API compatibility with the current request shape, but it is not persisted because the current `DoctorProfile` schema does not include a `YearsOfExperience` column and this task did not change schema or create a migration.
-- Doctor invitation password setup is implemented, but the real frontend setup page and production email URL are still needed.
+- Doctor invitation password setup is implemented, and the frontend setup page exists at `/doctor/setup-password`. A production email URL/template is still needed.
 - Email verification now has unit coverage for valid, invalid, expired, and reused token paths. Broader integration tests against EF Core should still be added before production hardening.
-- JWT bearer validation and DB-backed active role policies are now wired for Patient, Admin, and Doctor/Staff/Admin protected endpoint groups. Production deployments must override the development signing key.
+- JWT bearer validation and DB-backed active role policies are now wired for Patient, Doctor, Admin, and Doctor/Staff/Admin protected endpoint groups. Production deployments must override the development signing key.
 - Existing browser sessions created before the frontend Patient dashboard page work may not have `patientProfileId` in localStorage/JWT. Users should log out and log in again after the backend restart.
 - Payment webhook endpoints remain placeholder/public and still need real provider signature verification, idempotency handling, and secret management before production.
 - Some UC scaffold endpoints remain non-final placeholders. They are either public browse-only scaffolds or conservatively protected by Patient/Admin/DoctorStaff policies, but their final business logic still needs implementation before production use.

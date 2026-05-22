@@ -9,6 +9,15 @@ public sealed record CreateAppointmentRequest
     public string? Reason { get; init; }
 }
 
+public sealed record CreateFlexibleAppointmentRequest
+{
+    public Guid DoctorProfileId { get; init; }
+    public Guid MedicalServiceId { get; init; }
+    public DateTimeOffset PreferredStartTime { get; init; }
+    public DateTimeOffset PreferredEndTime { get; init; }
+    public string? Reason { get; init; }
+}
+
 public sealed record CancelAppointmentRequest
 {
     public string? CancellationReason { get; init; }

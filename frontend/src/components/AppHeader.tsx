@@ -33,6 +33,8 @@ export function AppHeader() {
 
   const dashboardPath = session?.roles.includes('Admin')
     ? '/admin/dashboard'
+    : session?.roles.includes('Doctor')
+      ? '/doctor/dashboard'
     : '/patient/dashboard'
 
   function handleLogout() {

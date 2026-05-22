@@ -15,9 +15,25 @@ public sealed class EfPublicDoctorListingRepository(AppDbContext dbContext) : IP
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildPublicDoctorQuery(criteria, now, null);
+        var doctorRoleId = await GetDoctorRoleIdAsync(cancellationToken);
 
-        return await query.ToListAsync(cancellationToken);
+        if (doctorRoleId is null)
+        {
+            return [];
+        }
+
+        var doctors = await BuildPublicDoctorQuery(criteria, doctorRoleId.Value, null)
+            .Select(profile => new PublicDoctorProjection(
+                profile.Id,
+                profile.UserId,
+                profile.User!.FullName,
+                profile.SpecialtyId,
+                profile.Specialty != null ? profile.Specialty.Name : string.Empty,
+                profile.Bio,
+                profile.AvatarUrl))
+            .ToListAsync(cancellationToken);
+
+        return await AttachNextAvailableSlotsAsync(doctors, criteria, now, cancellationToken);
     }
 
     public async Task<PublicDoctorRecord?> GetByIdAsync(
@@ -25,66 +41,60 @@ public sealed class EfPublicDoctorListingRepository(AppDbContext dbContext) : IP
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildPublicDoctorQuery(
+        var doctorRoleId = await GetDoctorRoleIdAsync(cancellationToken);
+
+        if (doctorRoleId is null)
+        {
+            return null;
+        }
+
+        var doctors = await BuildPublicDoctorQuery(
+                new PublicDoctorSearchCriteria(null, null, null, null),
+                doctorRoleId.Value,
+                doctorProfileId)
+            .Select(profile => new PublicDoctorProjection(
+                profile.Id,
+                profile.UserId,
+                profile.User!.FullName,
+                profile.SpecialtyId,
+                profile.Specialty != null ? profile.Specialty.Name : string.Empty,
+                profile.Bio,
+                profile.AvatarUrl))
+            .ToListAsync(cancellationToken);
+
+        var records = await AttachNextAvailableSlotsAsync(
+            doctors,
             new PublicDoctorSearchCriteria(null, null, null, null),
             now,
-            doctorProfileId);
+            cancellationToken);
 
-        return await query.SingleOrDefaultAsync(cancellationToken);
+        return records.SingleOrDefault();
     }
 
-    private IQueryable<PublicDoctorRecord> BuildPublicDoctorQuery(
+    private Task<Guid?> GetDoctorRoleIdAsync(CancellationToken cancellationToken)
+    {
+        return dbContext.Roles
+            .AsNoTracking()
+            .Where(role => !role.IsDeleted && role.Name == DoctorRoleName)
+            .Select(role => (Guid?)role.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private IQueryable<DoctorProfile> BuildPublicDoctorQuery(
         PublicDoctorSearchCriteria criteria,
-        DateTimeOffset now,
+        Guid doctorRoleId,
         Guid? doctorProfileId)
     {
-        var slotQuery = dbContext.DoctorScheduleSlots
-            .Where(slot =>
-                !slot.IsDeleted &&
-                slot.Status == ScheduleSlotStatus.Available &&
-                slot.StartTime > now);
-
-        if (criteria.AvailableFrom.HasValue)
-        {
-            slotQuery = slotQuery.Where(slot => slot.StartTime >= criteria.AvailableFrom.Value);
-        }
-
-        if (criteria.AvailableTo.HasValue)
-        {
-            slotQuery = slotQuery.Where(slot => slot.StartTime < criteria.AvailableTo.Value);
-        }
-
-        var nextSlotStartTimes = slotQuery
-            .GroupBy(slot => slot.DoctorProfileId)
-            .Select(group => new
-            {
-                DoctorProfileId = group.Key,
-                StartTime = group.Min(slot => slot.StartTime)
-            });
-
-        var nextSlots = slotQuery
-            .Join(
-                nextSlotStartTimes,
-                slot => new { slot.DoctorProfileId, slot.StartTime },
-                nextSlot => new { nextSlot.DoctorProfileId, nextSlot.StartTime },
-                (slot, nextSlot) => new
-                {
-                    slot.DoctorProfileId,
-                    slot.StartTime,
-                    slot.EndTime
-                });
-
         var doctors = dbContext.DoctorProfiles
+            .AsNoTracking()
             .Where(profile =>
                 !profile.IsDeleted &&
                 profile.PublicProfileApproved &&
+                profile.PublicProfileReviewStatus == DoctorProfileReviewStatus.Approved &&
                 profile.User != null &&
                 !profile.User.IsDeleted &&
                 profile.User.Status == AccountStatus.Active &&
-                profile.User.Roles.Any(userRole =>
-                    userRole.Role != null &&
-                    !userRole.Role.IsDeleted &&
-                    userRole.Role.Name == DoctorRoleName));
+                profile.User.Roles.Any(userRole => userRole.RoleId == doctorRoleId));
 
         if (criteria.SpecialtyId.HasValue)
         {
@@ -104,27 +114,83 @@ public sealed class EfPublicDoctorListingRepository(AppDbContext dbContext) : IP
                 (profile.Bio != null && profile.Bio.Contains(keyword)));
         }
 
-        return doctors
-            .Join(
-                nextSlots,
-                profile => profile.Id,
-                slot => slot.DoctorProfileId,
-                (profile, slot) => new
-                {
-                    Profile = profile,
-                    Slot = slot
-                })
-            .OrderBy(doctor => doctor.Slot.StartTime)
-            .ThenBy(doctor => doctor.Profile.User!.FullName)
-            .Select(doctor => new PublicDoctorRecord(
-                doctor.Profile.Id,
-                doctor.Profile.UserId,
-                doctor.Profile.User!.FullName,
-                doctor.Profile.SpecialtyId,
-                doctor.Profile.Specialty != null ? doctor.Profile.Specialty.Name : string.Empty,
-                doctor.Profile.Bio,
-                doctor.Profile.AvatarUrl,
-                doctor.Slot.StartTime,
-                doctor.Slot.EndTime));
+        return doctors;
     }
+
+    private async Task<IReadOnlyList<PublicDoctorRecord>> AttachNextAvailableSlotsAsync(
+        IReadOnlyList<PublicDoctorProjection> doctors,
+        PublicDoctorSearchCriteria criteria,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (doctors.Count == 0)
+        {
+            return [];
+        }
+
+        var doctorProfileIds = doctors
+            .Select(doctor => doctor.DoctorProfileId)
+            .ToList();
+
+        var slotQuery = dbContext.DoctorScheduleSlots
+            .AsNoTracking()
+            .Where(slot =>
+                doctorProfileIds.Contains(slot.DoctorProfileId) &&
+                !slot.IsDeleted &&
+                slot.Status == ScheduleSlotStatus.Available &&
+                slot.StartTime > now);
+
+        if (criteria.AvailableFrom.HasValue)
+        {
+            slotQuery = slotQuery.Where(slot => slot.StartTime >= criteria.AvailableFrom.Value);
+        }
+
+        if (criteria.AvailableTo.HasValue)
+        {
+            slotQuery = slotQuery.Where(slot => slot.StartTime < criteria.AvailableTo.Value);
+        }
+
+        var slots = await slotQuery
+            .Select(slot => new PublicDoctorSlotProjection(
+                slot.DoctorProfileId,
+                slot.StartTime,
+                slot.EndTime))
+            .ToListAsync(cancellationToken);
+
+        var nextSlotByDoctorId = slots
+            .GroupBy(slot => slot.DoctorProfileId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(slot => slot.StartTime).First());
+
+        return doctors
+            .Select(doctor => new PublicDoctorRecord(
+                doctor.DoctorProfileId,
+                doctor.UserId,
+                doctor.FullName,
+                doctor.SpecialtyId,
+                doctor.SpecialtyName,
+                doctor.Bio,
+                doctor.AvatarUrl,
+                nextSlotByDoctorId.TryGetValue(doctor.DoctorProfileId, out var slot) ? slot.StartTime : null,
+                slot?.EndTime))
+            .OrderBy(doctor => doctor.NextAvailableSlotStartTime.HasValue ? 0 : 1)
+            .ThenBy(doctor => doctor.NextAvailableSlotStartTime ?? DateTimeOffset.MaxValue)
+            .ThenBy(doctor => doctor.FullName)
+            .ToList();
+    }
+
+    private sealed record PublicDoctorProjection(
+        Guid DoctorProfileId,
+        Guid UserId,
+        string FullName,
+        Guid SpecialtyId,
+        string SpecialtyName,
+        string? Bio,
+        string? AvatarUrl);
+
+    private sealed record PublicDoctorSlotProjection(
+        Guid DoctorProfileId,
+        DateTimeOffset StartTime,
+        DateTimeOffset EndTime);
 }

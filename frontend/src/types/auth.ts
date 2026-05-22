@@ -14,6 +14,7 @@ export interface AuthSession {
   fullName: string
   roles: UserRole[]
   patientProfileId?: string | null
+  doctorProfileId?: string | null
 }
 
 export interface LoginRequest {
@@ -29,6 +30,18 @@ export interface LoginResponse {
   roles: string[]
   accessToken: string
   patientProfileId?: string | null
+  doctorProfileId?: string | null
+}
+
+export interface SetupDoctorPasswordRequest {
+  email: string
+  token: string
+  password: string
+}
+
+export interface SetupDoctorPasswordResponse {
+  message: string
+  email: string
 }
 
 export interface RegisterPatientRequest {

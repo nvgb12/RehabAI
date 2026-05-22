@@ -54,7 +54,7 @@ public class AppointmentBookingServiceTests
     {
         var repository = new FakeAppointmentBookingRepository
         {
-            CreateFailureReason = AppointmentFailureReason.SlotUnavailable
+            SlotStatus = ScheduleSlotStatus.Disabled
         };
         var service = new AppointmentBookingService(repository);
 
@@ -65,11 +65,73 @@ public class AppointmentBookingServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenSlotIsDoubleBooked_ReturnsConflictReason()
+    public async Task CreateAsync_WhenScheduleSlotIsMissing_ReturnsValidationFailure()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+
+        var command = repository.ValidCommand() with
+        {
+            ScheduleSlotId = Guid.Empty
+        };
+
+        var result = await service.CreateAsync(command);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.Validation, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSlotBelongsToAnotherDoctor_ReturnsSlotNotFound()
     {
         var repository = new FakeAppointmentBookingRepository
         {
-            CreateFailureReason = AppointmentFailureReason.DoubleBooked
+            SlotDoctorProfileId = Guid.NewGuid()
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateAsync(repository.ValidCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.SlotNotFound, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSlotIsBooked_ReturnsSlotUnavailable()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            SlotStatus = ScheduleSlotStatus.Booked
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateAsync(repository.ValidCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.SlotUnavailable, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSlotIsInThePast_ReturnsSlotUnavailable()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            SlotStartTime = DateTimeOffset.UtcNow.AddMinutes(-5)
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateAsync(repository.ValidCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.SlotUnavailable, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSlotHasActiveAppointment_ReturnsDoubleBooked()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            SlotHasActiveAppointment = true
         };
         var service = new AppointmentBookingService(repository);
 
@@ -77,6 +139,97 @@ public class AppointmentBookingServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(AppointmentFailureReason.DoubleBooked, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSlotIsDoubleBooked_ReturnsConflictReason()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            SlotHasActiveAppointment = true
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateAsync(repository.ValidCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.DoubleBooked, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_WithApprovedDoctorWithoutSlots_CreatesRequestedAppointment()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateRequestAsync(repository.ValidRequestCommand());
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(nameof(AppointmentStatus.Requested), result.Appointment!.Status);
+        Assert.Null(result.Appointment.ScheduleSlotId);
+        Assert.Equal("Post-stroke rehabilitation consultation", result.Appointment.Reason);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_WithApprovedDoctorEvenIfSlotsExist_CreatesRequestedAppointment()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            SlotStatus = ScheduleSlotStatus.Available
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateRequestAsync(repository.ValidRequestCommand());
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(nameof(AppointmentStatus.Requested), result.Appointment!.Status);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_WhenDoctorIsNotPublicBookable_ReturnsFailure()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            DoctorIsPublicBookable = false
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateRequestAsync(repository.ValidRequestCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.DoctorNotPublicBookable, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_WhenMedicalServiceIsInactive_ReturnsFailure()
+    {
+        var repository = new FakeAppointmentBookingRepository
+        {
+            MedicalServiceIsActive = false
+        };
+        var service = new AppointmentBookingService(repository);
+
+        var result = await service.CreateRequestAsync(repository.ValidRequestCommand());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.MedicalServiceNotFound, result.FailureReason);
+    }
+
+    [Fact]
+    public async Task CreateRequestAsync_WhenPreferredTimeIsInvalid_ReturnsValidationFailure()
+    {
+        var repository = new FakeAppointmentBookingRepository();
+        var service = new AppointmentBookingService(repository);
+        var validCommand = repository.ValidRequestCommand();
+        var command = validCommand with
+        {
+            PreferredEndTime = validCommand.PreferredStartTime
+        };
+
+        var result = await service.CreateRequestAsync(command);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(AppointmentFailureReason.Validation, result.FailureReason);
     }
 
     [Fact]
@@ -214,6 +367,10 @@ public class AppointmentBookingServiceTests
         public bool PatientHasRole { get; set; } = true;
         public bool DoctorIsPublicBookable { get; set; } = true;
         public bool MedicalServiceIsActive { get; set; } = true;
+        public Guid? SlotDoctorProfileId { get; set; }
+        public ScheduleSlotStatus SlotStatus { get; set; } = ScheduleSlotStatus.Available;
+        public DateTimeOffset SlotStartTime { get; set; } = DateTimeOffset.UtcNow.AddDays(1);
+        public bool SlotHasActiveAppointment { get; set; }
         public AppointmentFailureReason? CreateFailureReason { get; set; }
         public bool SlotWasBooked { get; private set; }
         public bool SlotWasReleased { get; private set; }
@@ -226,6 +383,19 @@ public class AppointmentBookingServiceTests
                 DoctorProfileId,
                 MedicalServiceId,
                 ScheduleSlotId,
+                "Post-stroke rehabilitation consultation");
+        }
+
+        public CreateAppointmentRequestCommand ValidRequestCommand()
+        {
+            var preferredStart = DateTimeOffset.UtcNow.AddDays(2);
+
+            return new CreateAppointmentRequestCommand(
+                PatientProfileId,
+                DoctorProfileId,
+                MedicalServiceId,
+                preferredStart,
+                preferredStart.AddHours(1),
                 "Post-stroke rehabilitation consultation");
         }
 
@@ -265,6 +435,23 @@ public class AppointmentBookingServiceTests
             return Task.FromResult(medicalServiceId == MedicalServiceId && MedicalServiceIsActive);
         }
 
+        public Task<ScheduleSlotBookingState?> GetScheduleSlotStateAsync(
+            Guid scheduleSlotId,
+            CancellationToken cancellationToken = default)
+        {
+            if (scheduleSlotId != ScheduleSlotId)
+            {
+                return Task.FromResult<ScheduleSlotBookingState?>(null);
+            }
+
+            return Task.FromResult<ScheduleSlotBookingState?>(new ScheduleSlotBookingState(
+                ScheduleSlotId,
+                SlotDoctorProfileId ?? DoctorProfileId,
+                SlotStatus,
+                SlotStartTime,
+                SlotHasActiveAppointment));
+        }
+
         public Task<int?> GetSoftReserveMinutesAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult<int?>(10);
@@ -295,6 +482,29 @@ public class AppointmentBookingServiceTests
                 start,
                 start.AddHours(1),
                 draft.ReservedUntil,
+                draft.Reason,
+                null);
+
+            appointments.Add(appointment);
+
+            return Task.FromResult(new CreateAppointmentRepositoryResult(true, appointment, null, null));
+        }
+
+        public Task<CreateAppointmentRepositoryResult> CreateRequestedAppointmentAsync(
+            CreateAppointmentRequestDraft draft,
+            CancellationToken cancellationToken = default)
+        {
+            var appointment = new AppointmentRecord(
+                Guid.NewGuid(),
+                draft.PatientProfileId,
+                draft.PatientUserId,
+                draft.DoctorProfileId,
+                draft.MedicalServiceId,
+                null,
+                AppointmentStatus.Requested,
+                draft.PreferredStartTime,
+                draft.PreferredEndTime,
+                null,
                 draft.Reason,
                 null);
 

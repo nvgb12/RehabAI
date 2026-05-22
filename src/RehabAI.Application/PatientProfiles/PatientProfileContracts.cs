@@ -8,7 +8,8 @@ public sealed record PatientProfileResponse(
     string? PhoneNumber,
     DateOnly? DateOfBirth,
     string? Gender,
-    string? Address);
+    string? Address,
+    string? ProfileImageUrl);
 
 public sealed record UpdatePatientProfileCommand(
     string? FullName,
@@ -23,10 +24,24 @@ public sealed record PatientProfileResult(
     PatientProfileResponse? Profile = null,
     PatientProfileFailureReason? FailureReason = null);
 
+public sealed record UploadPatientProfileImageCommand(
+    Guid UserId,
+    string FileName,
+    string ContentType,
+    long Length,
+    Stream Content);
+
+public sealed record PatientProfileImageUploadResult(
+    bool Succeeded,
+    string Message,
+    string? ProfileImageUrl = null,
+    PatientProfileFailureReason? FailureReason = null);
+
 public enum PatientProfileFailureReason
 {
     Validation = 1,
-    NotFound = 2
+    NotFound = 2,
+    FileTooLarge = 3
 }
 
 public interface IPatientProfileService
@@ -38,6 +53,10 @@ public interface IPatientProfileService
     Task<PatientProfileResult> UpdateProfileAsync(
         Guid patientProfileId,
         UpdatePatientProfileCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<PatientProfileImageUploadResult> UploadProfileImageAsync(
+        UploadPatientProfileImageCommand command,
         CancellationToken cancellationToken = default);
 }
 
@@ -51,6 +70,15 @@ public interface IPatientProfileRepository
         Guid patientProfileId,
         UpdatePatientProfileCommand command,
         CancellationToken cancellationToken = default);
+
+    Task<PatientProfileRecord?> GetByUserIdAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
+    Task<string?> UpdateProfileImageAsync(
+        Guid patientProfileId,
+        string profileImageUrl,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record PatientProfileRecord(
@@ -61,4 +89,13 @@ public sealed record PatientProfileRecord(
     string? PhoneNumber,
     DateOnly? DateOfBirth,
     string? Gender,
-    string? Address);
+    string? Address,
+    string? ProfileImageUrl);
+
+public interface IProfileImageStorage
+{
+    Task<string> SaveAsync(
+        Stream content,
+        string fileExtension,
+        CancellationToken cancellationToken = default);
+}

@@ -23,9 +23,18 @@ export function getStoredAuth(): AuthSession | null {
       return null
     }
 
-    if (!parsed.patientProfileId) {
-      const patientProfileId = getPatientProfileIdFromToken(parsed.accessToken)
-      return patientProfileId ? { ...parsed, patientProfileId } : parsed
+    const patientProfileId =
+      parsed.patientProfileId ?? getPatientProfileIdFromToken(parsed.accessToken)
+    const doctorProfileId =
+      parsed.doctorProfileId ?? getDoctorProfileIdFromToken(parsed.accessToken)
+
+    if (
+      patientProfileId !== parsed.patientProfileId ||
+      doctorProfileId !== parsed.doctorProfileId
+    ) {
+      const hydratedSession = { ...parsed, patientProfileId, doctorProfileId }
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(hydratedSession))
+      return hydratedSession
     }
 
     return parsed
@@ -38,6 +47,8 @@ export function getStoredAuth(): AuthSession | null {
 export function storeAuth(response: LoginResponse): AuthSession {
   const patientProfileId =
     response.patientProfileId ?? getPatientProfileIdFromToken(response.accessToken)
+  const doctorProfileId =
+    response.doctorProfileId ?? getDoctorProfileIdFromToken(response.accessToken)
   const session: AuthSession = {
     accessToken: response.accessToken,
     userId: response.userId,
@@ -45,6 +56,7 @@ export function storeAuth(response: LoginResponse): AuthSession {
     fullName: response.fullName,
     roles: normalizeRoles(response.roles),
     patientProfileId,
+    doctorProfileId,
   }
 
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
@@ -53,6 +65,10 @@ export function storeAuth(response: LoginResponse): AuthSession {
 
 export function getPatientProfileId(session = getStoredAuth()): string | null {
   return session?.patientProfileId ?? null
+}
+
+export function getDoctorProfileId(session = getStoredAuth()): string | null {
+  return session?.doctorProfileId ?? null
 }
 
 export function updateStoredAuthProfile(update: Partial<Pick<AuthSession, 'fullName'>>): void {
@@ -88,6 +104,10 @@ export function getDefaultRouteForRoles(roles: UserRole[]): string {
     return '/admin/dashboard'
   }
 
+  if (roles.includes('Doctor')) {
+    return '/doctor/dashboard'
+  }
+
   if (roles.includes('Patient')) {
     return '/patient/dashboard'
   }
@@ -97,4 +117,8 @@ export function getDefaultRouteForRoles(roles: UserRole[]): string {
 
 function getPatientProfileIdFromToken(token: string): string | null {
   return decodeJwtPayload(token)?.patientProfileId ?? null
+}
+
+function getDoctorProfileIdFromToken(token: string): string | null {
+  return decodeJwtPayload(token)?.doctorProfileId ?? null
 }

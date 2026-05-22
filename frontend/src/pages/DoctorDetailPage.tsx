@@ -7,7 +7,7 @@ import {
   CreditCard,
   Stethoscope,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -78,6 +78,9 @@ export function DoctorDetailPage() {
     queryFn: getMedicalServices,
   })
 
+  const availableSlots = useMemo(() => slotsQuery.data ?? [], [slotsQuery.data])
+  const hasAvailableSlots = availableSlots.length > 0
+
   const {
     register,
     handleSubmit,
@@ -101,10 +104,21 @@ export function DoctorDetailPage() {
   }, [getValues, servicesQuery.data, setValue])
 
   useEffect(() => {
-    if (slotsQuery.data?.length && !getValues('scheduleSlotId')) {
-      setValue('scheduleSlotId', slotsQuery.data[0].id)
+    const selectedSlotId = getValues('scheduleSlotId')
+
+    if (
+      availableSlots.length &&
+      (!selectedSlotId || !availableSlots.some((slot) => slot.id === selectedSlotId))
+    ) {
+      setValue('scheduleSlotId', availableSlots[0].id)
     }
-  }, [getValues, setValue, slotsQuery.data])
+  }, [availableSlots, getValues, setValue])
+
+  useEffect(() => {
+    if (slotsQuery.isSuccess && availableSlots.length === 0) {
+      setValue('scheduleSlotId', '')
+    }
+  }, [availableSlots.length, setValue, slotsQuery.isSuccess])
 
   const createMutation = useMutation({
     mutationFn: (values: BookingFormValues) =>
@@ -145,7 +159,7 @@ export function DoctorDetailPage() {
   const selectedService = servicesQuery.data?.find(
     (service) => service.id === selectedServiceId,
   )
-  const selectedSlot = slotsQuery.data?.find((slot) => slot.id === selectedSlotId)
+  const selectedSlot = availableSlots.find((slot) => slot.id === selectedSlotId)
   const canConfirmPayment = createdAppointment?.status === 'PendingPayment'
 
   function openBooking() {
@@ -163,7 +177,7 @@ export function DoctorDetailPage() {
     setSuccessMessage(null)
     setCreatedAppointment(null)
 
-    if (!patientProfileId) {
+    if (!patientProfileId || !hasAvailableSlots) {
       return
     }
 
@@ -267,7 +281,7 @@ export function DoctorDetailPage() {
                 </div>
               ) : null}
 
-              {slotsQuery.isSuccess && slotsQuery.data.length === 0 ? (
+              {slotsQuery.isSuccess && availableSlots.length === 0 ? (
                 <div className="mt-5">
                   <EmptyState
                     icon={CalendarCheck}
@@ -277,9 +291,9 @@ export function DoctorDetailPage() {
                 </div>
               ) : null}
 
-              {slotsQuery.isSuccess && slotsQuery.data.length > 0 ? (
+              {slotsQuery.isSuccess && availableSlots.length > 0 ? (
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {slotsQuery.data.slice(0, 6).map((slot) => (
+                  {availableSlots.slice(0, 6).map((slot) => (
                     <button
                       key={slot.id}
                       type="button"
@@ -340,6 +354,12 @@ export function DoctorDetailPage() {
               </div>
             ) : null}
 
+            {slotsQuery.isSuccess && !hasAvailableSlots ? (
+              <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+                Bác sĩ hiện chưa có lịch trống để đặt trực tiếp.
+              </div>
+            ) : null}
+
             {createdAppointment ? (
               <PaymentStep
                 appointment={createdAppointment}
@@ -376,9 +396,13 @@ export function DoctorDetailPage() {
 
                 <label>
                   <span className="field-label">Lịch trống</span>
-                  <select className="field-input mt-2" {...register('scheduleSlotId')}>
+                  <select
+                    className="field-input mt-2"
+                    disabled={!hasAvailableSlots || slotsQuery.isLoading}
+                    {...register('scheduleSlotId')}
+                  >
                     <option value="">Chọn slot</option>
-                    {slotsQuery.data?.map((slot) => (
+                    {availableSlots.map((slot) => (
                       <option key={slot.id} value={slot.id}>
                         {formatDateTime(slot.startTime)} -{' '}
                         {formatDateTime(slot.endTime)}
@@ -457,6 +481,7 @@ export function DoctorDetailPage() {
                       createMutation.isPending ||
                       !isPatient ||
                       !patientProfileId ||
+                      !hasAvailableSlots ||
                       servicesQuery.isLoading ||
                       slotsQuery.isLoading
                     }
