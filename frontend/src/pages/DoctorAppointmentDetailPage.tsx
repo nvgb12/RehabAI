@@ -104,7 +104,7 @@ export function DoctorAppointmentDetailPage() {
               <InfoBlock label="Patient profile" value={appointment.patientProfileId} />
               <InfoBlock
                 label="Schedule slot"
-                value={appointment.doctorScheduleSlotId}
+                value={appointment.doctorScheduleSlotId ?? 'Flexible request'}
               />
               <InfoBlock
                 label="Medical service"

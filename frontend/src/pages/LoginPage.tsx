@@ -134,6 +134,12 @@ export function LoginPage() {
               </label>
             </div>
 
+            <div className="mt-4 text-right">
+              <Link className="text-sm font-semibold text-care-800" to="/forgot-password">
+                Forgot password?
+              </Link>
+            </div>
+
             <button
               type="submit"
               className="btn-primary mt-7 w-full"

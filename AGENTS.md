@@ -104,13 +104,16 @@ Rules:
 
 Doctor `Active` status alone is not enough for public visibility.
 
-A Doctor can appear in Search or AI suggestions only when all conditions are true:
+A Doctor can appear in public Search, public Doctor detail, or AI suggestions only when all conditions are true:
 
 - `Users.Status = Active`
+- `DoctorProfiles.PublicProfileReviewStatus = Approved`
 - `DoctorProfiles.PublicProfileApproved = true`
-- The Doctor has at least one future available schedule slot:
-  - `DoctorScheduleSlots.Status = Available`
-  - `DoctorScheduleSlots.StartTime > current time`
+- `DoctorProfiles.IsDeleted = false`
+
+Future available schedule slots are not required for public visibility.
+
+Schedule slots are bookability metadata only. They determine direct slot booking availability and next-slot display, but lack of future available slots must not hide an otherwise Active and Approved public Doctor.
 
 ## Account Access Rules
 
@@ -141,6 +144,8 @@ Important database files:
 
 Appointment state machine:
 
+- `Requested -> PendingPayment`
+- `Requested -> Rejected`
 - `PendingPayment -> Expired`
 - `PendingPayment -> Pending`
 - `Pending -> Confirmed`
@@ -163,6 +168,15 @@ When payment times out:
 - Appointment becomes `Expired`.
 - Doctor schedule slot returns to `Available`.
 - `ReservedUntil` is cleared.
+
+Flexible appointment request rules:
+
+- A Patient can send an appointment request to an Active and Approved Doctor without selecting a schedule slot.
+- Flexible request creation sets `AppointmentStatus = Requested`.
+- `DoctorScheduleSlotId` may be null for flexible appointment requests.
+- Doctor acceptance moves the appointment from `Requested` to `PendingPayment`.
+- Doctor rejection moves the appointment from `Requested` to `Rejected` and requires a rejection reason.
+- Flexible requests do not reserve or book schedule slots in the current MVP.
 
 ## Payment Rules
 
@@ -298,10 +312,11 @@ Before making changes:
 2. Identify affected modules.
 3. Implement the smallest correct change.
 4. Do not invent new business rules unless asked.
-5. If a new business decision is made, update `/docs/project-decisions.md`.
-6. If implementation progress changes, update `/docs/implementation-notes.md`.
-7. If database schema changes, update `/docs/database-design.md`.
-8. Keep the SRS, database design, and code consistent.
+5. After each task, update `/docs/implementation-notes.md`.
+6. If database schema changes, update `/docs/database-design.md`.
+7. If business rules change, update `/docs/project-decisions.md`.
+8. If Codex working rules change, update `/AGENTS.md`.
+9. Keep the SRS, database design, project decisions, implementation notes, Codex working rules, and code consistent.
 
 ## Testing Rules
 

@@ -184,12 +184,14 @@ Doctor appears in public search and AI doctor suggestions only if:
 
 ```text
 Users.Status = Active
+DoctorProfiles.PublicProfileReviewStatus = Approved
 DoctorProfiles.PublicProfileApproved = true
-At least one DoctorScheduleSlot.Status = Available
-DoctorScheduleSlot.StartTime > current time
+DoctorProfiles.IsDeleted = false
 ```
 
-If a Doctor has no future available slot, they should not appear as bookable.
+Future available schedule slots are not required for public visibility.
+
+Schedule slots are bookability metadata only. They determine direct slot booking availability and next-slot display, but lack of future available slots must not hide an otherwise Active and Approved public Doctor.
 
 ## 10. Schedule And Appointment Booking
 
@@ -209,6 +211,8 @@ Disabled
 Appointment state machine:
 
 ```text
+Requested -> PendingPayment
+Requested -> Rejected
 PendingPayment -> Expired
 PendingPayment -> Pending
 Pending -> Confirmed
@@ -216,6 +220,17 @@ Pending -> Cancelled
 Confirmed -> Completed
 Confirmed -> Cancelled
 Confirmed -> NoShow
+```
+
+Flexible appointment request rules:
+
+```text
+Patient can send an appointment request to an Active and Approved Doctor without selecting a schedule slot.
+Appointment status starts as Requested.
+DoctorScheduleSlotId may be null for flexible appointment requests.
+Doctor acceptance moves Requested -> PendingPayment.
+Doctor rejection moves Requested -> Rejected and requires a rejection reason.
+Flexible requests do not reserve or book schedule slots in the current MVP.
 ```
 
 When a paid appointment is waiting for payment:

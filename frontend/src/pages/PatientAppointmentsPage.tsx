@@ -142,7 +142,17 @@ export function PatientAppointmentsPage() {
                         <StatusBadge value={appointment.status} />
                       </BodyCell>
                       <BodyCell>
-                        {appointment.reason ?? 'Post-stroke rehabilitation'}
+                        <div className="max-w-[260px] whitespace-normal">
+                          <p>
+                            {appointment.reason ?? 'Post-stroke rehabilitation'}
+                          </p>
+                          {appointment.status === 'Rejected' &&
+                          appointment.cancellationReason ? (
+                            <p className="mt-2 text-xs font-semibold text-red-700">
+                              Rejection reason: {appointment.cancellationReason}
+                            </p>
+                          ) : null}
+                        </div>
                       </BodyCell>
                       <BodyCell>
                         <div className="flex flex-wrap gap-2">

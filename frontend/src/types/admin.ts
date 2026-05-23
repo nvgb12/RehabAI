@@ -135,8 +135,25 @@ export interface AdminDoctor {
   specialtyId: string
   specialtyName: string
   bio?: string | null
+  avatarUrl?: string | null
   publicProfileApproved: boolean
+  publicProfileReviewStatus: string
+  submittedForReviewAt?: string | null
+  reviewedAt?: string | null
+  reviewedByAdminId?: string | null
+  publicProfileRejectionReason?: string | null
+  isPublicProfileReady: boolean
+  publicProfileMissingItems: string[]
   createdAt: string
   updatedAt?: string | null
   isDeleted: boolean
+}
+
+export interface RejectDoctorPublicProfileRequest {
+  rejectionReason: string
+}
+
+export interface AdminDoctorPublicProfileReviewResponse {
+  message: string
+  doctor: AdminDoctor
 }

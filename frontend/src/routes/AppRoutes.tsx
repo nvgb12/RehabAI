@@ -14,6 +14,7 @@ import { DoctorListPage } from '../pages/DoctorListPage'
 import { DoctorProfilePage } from '../pages/DoctorProfilePage'
 import { DoctorSchedulePage } from '../pages/DoctorSchedulePage'
 import { DoctorSetupPasswordPage } from '../pages/DoctorSetupPasswordPage'
+import { ForgotPasswordPage } from '../pages/ForgotPasswordPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { PatientAppointmentsPage } from '../pages/PatientAppointmentsPage'
@@ -24,6 +25,7 @@ import { PatientSubscriptionPage } from '../pages/PatientSubscriptionPage'
 import { ProductDetailPage } from '../pages/ProductDetailPage'
 import { ProductListPage } from '../pages/ProductListPage'
 import { RegisterPage } from '../pages/RegisterPage'
+import { ResetPasswordPage } from '../pages/ResetPasswordPage'
 import { ProtectedRoute } from './ProtectedRoute'
 
 export function AppRoutes() {
@@ -33,6 +35,8 @@ export function AppRoutes() {
         <Route index element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/doctor/setup-password" element={<DoctorSetupPasswordPage />} />
         <Route path="/products" element={<ProductListPage />} />
         <Route path="/products/:productId" element={<ProductDetailPage />} />

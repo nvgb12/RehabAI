@@ -3,15 +3,18 @@ import type {
   CreateDoctorScheduleSlotRequest,
   Doctor,
   DoctorAppointment,
+  DoctorAppointmentActionResponse,
   DoctorAvatarUploadResponse,
   DoctorDashboardSummary,
   DoctorFilters,
+  DoctorPublicProfileSubmitResponse,
   DoctorScheduleSlot,
   DoctorScheduleSlotActionResponse,
   DoctorSelfProfile,
   UpdateDoctorProfileRequest,
   UpdateDoctorProfileResponse,
   UpdateDoctorScheduleSlotRequest,
+  RejectDoctorAppointmentRequest,
 } from '../types/doctor'
 
 function normalizeList<T>(payload: unknown): T[] {
@@ -86,6 +89,13 @@ export async function uploadMyDoctorAvatar(
   return response.data
 }
 
+export async function submitMyDoctorPublicProfile(): Promise<DoctorPublicProfileSubmitResponse> {
+  const response = await apiClient.post<DoctorPublicProfileSubmitResponse>(
+    '/api/doctors/me/public-profile/submit',
+  )
+  return response.data
+}
+
 export async function getMyDoctorDashboard(): Promise<DoctorDashboardSummary> {
   const response = await apiClient.get<DoctorDashboardSummary>(
     '/api/doctors/me/dashboard',
@@ -105,6 +115,35 @@ export async function getMyDoctorAppointment(
 ): Promise<DoctorAppointment> {
   const response = await apiClient.get<DoctorAppointment>(
     `/api/doctors/me/appointments/${appointmentId}`,
+  )
+  return response.data
+}
+
+export async function getMyDoctorAppointmentRequests(): Promise<
+  DoctorAppointment[]
+> {
+  const response = await apiClient.get<DoctorAppointment[]>(
+    '/api/doctors/me/appointment-requests',
+  )
+  return response.data
+}
+
+export async function acceptMyDoctorAppointmentRequest(
+  appointmentId: string,
+): Promise<DoctorAppointmentActionResponse> {
+  const response = await apiClient.post<DoctorAppointmentActionResponse>(
+    `/api/doctors/me/appointments/${appointmentId}/accept`,
+  )
+  return response.data
+}
+
+export async function rejectMyDoctorAppointmentRequest(
+  appointmentId: string,
+  request: RejectDoctorAppointmentRequest,
+): Promise<DoctorAppointmentActionResponse> {
+  const response = await apiClient.post<DoctorAppointmentActionResponse>(
+    `/api/doctors/me/appointments/${appointmentId}/reject`,
+    request,
   )
   return response.data
 }
