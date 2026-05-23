@@ -3,7 +3,7 @@ export interface Appointment {
   patientProfileId: string
   doctorProfileId: string
   medicalServiceId: string
-  scheduleSlotId: string
+  scheduleSlotId?: string | null
   status: string
   startTime: string
   endTime: string
@@ -18,6 +18,14 @@ export interface CreateAppointmentRequest {
   medicalServiceId: string
   scheduleSlotId: string
   reason?: string | null
+}
+
+export interface CreateFlexibleAppointmentRequest {
+  doctorProfileId: string
+  medicalServiceId: string
+  preferredStartTime: string
+  preferredEndTime: string
+  reason: string
 }
 
 export interface CancelAppointmentRequest {

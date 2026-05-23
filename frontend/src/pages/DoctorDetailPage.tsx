@@ -14,6 +14,7 @@ import { z } from 'zod'
 import {
   confirmAppointmentPayment,
   createAppointment,
+  createAppointmentRequest,
 } from '../api/appointmentApi'
 import {
   getDoctorAvailableSlots,
@@ -41,6 +42,26 @@ const bookingSchema = z.object({
 
 type BookingFormValues = z.infer<typeof bookingSchema>
 
+const requestSchema = z
+  .object({
+    medicalServiceId: z.string().min(1, 'Service is required.'),
+    preferredStartTime: z.string().min(1, 'Preferred start time is required.'),
+    preferredEndTime: z.string().min(1, 'Preferred end time is required.'),
+    reason: z.string().trim().min(1, 'Reason is required.'),
+  })
+  .refine(
+    (values) =>
+      values.preferredStartTime.length > 0 &&
+      values.preferredEndTime.length > 0 &&
+      new Date(values.preferredStartTime) < new Date(values.preferredEndTime),
+    {
+      message: 'Preferred start time must be before preferred end time.',
+      path: ['preferredEndTime'],
+    },
+  )
+
+type RequestFormValues = z.infer<typeof requestSchema>
+
 const reasonExamples = [
   'Post-stroke rehabilitation consultation',
   'Stroke mobility assessment',
@@ -60,6 +81,11 @@ export function DoctorDetailPage() {
   const [createdAppointment, setCreatedAppointment] =
     useState<Appointment | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [requestedAppointment, setRequestedAppointment] =
+    useState<Appointment | null>(null)
+  const [requestSuccessMessage, setRequestSuccessMessage] = useState<string | null>(
+    null,
+  )
 
   const doctorQuery = useQuery({
     queryKey: ['doctor', doctorProfileId],
@@ -97,11 +123,31 @@ export function DoctorDetailPage() {
     },
   })
 
+  const {
+    register: registerRequest,
+    handleSubmit: handleRequestSubmit,
+    setValue: setRequestValue,
+    getValues: getRequestValues,
+    formState: { errors: requestErrors },
+  } = useForm<RequestFormValues>({
+    resolver: zodResolver(requestSchema),
+    defaultValues: {
+      medicalServiceId: '',
+      preferredStartTime: '',
+      preferredEndTime: '',
+      reason: reasonExamples[0],
+    },
+  })
+
   useEffect(() => {
     if (servicesQuery.data?.length && !getValues('medicalServiceId')) {
       setValue('medicalServiceId', servicesQuery.data[0].id)
     }
-  }, [getValues, servicesQuery.data, setValue])
+
+    if (servicesQuery.data?.length && !getRequestValues('medicalServiceId')) {
+      setRequestValue('medicalServiceId', servicesQuery.data[0].id)
+    }
+  }, [getRequestValues, getValues, servicesQuery.data, setRequestValue, setValue])
 
   useEffect(() => {
     const selectedSlotId = getValues('scheduleSlotId')
@@ -154,6 +200,24 @@ export function DoctorDetailPage() {
     },
   })
 
+  const requestMutation = useMutation({
+    mutationFn: (values: RequestFormValues) =>
+      createAppointmentRequest({
+        doctorProfileId,
+        medicalServiceId: values.medicalServiceId,
+        preferredStartTime: toIsoDateTime(values.preferredStartTime),
+        preferredEndTime: toIsoDateTime(values.preferredEndTime),
+        reason: values.reason.trim(),
+      }),
+    onSuccess: async (response) => {
+      setRequestedAppointment(response.appointment)
+      setRequestSuccessMessage(response.message)
+      await queryClient.invalidateQueries({
+        queryKey: ['patient-appointments', patientProfileId],
+      })
+    },
+  })
+
   const selectedServiceId = useWatch({ control, name: 'medicalServiceId' })
   const selectedSlotId = useWatch({ control, name: 'scheduleSlotId' })
   const selectedService = servicesQuery.data?.find(
@@ -182,6 +246,22 @@ export function DoctorDetailPage() {
     }
 
     createMutation.mutate(values)
+  }
+
+  function onRequestSubmit(values: RequestFormValues) {
+    setRequestSuccessMessage(null)
+    setRequestedAppointment(null)
+
+    if (!session?.accessToken) {
+      navigate('/login', { state: { from: location } })
+      return
+    }
+
+    if (!isPatient) {
+      return
+    }
+
+    requestMutation.mutate(values)
   }
 
   if (!doctorProfileId) {
@@ -502,6 +582,147 @@ export function DoctorDetailPage() {
             )}
           </section>
         ) : null}
+
+        <section className="mt-6 rounded-lg border border-care-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase text-care-700">
+                Flexible request
+              </p>
+              <h2 className="mt-2 text-2xl font-bold text-slate-950">
+                Request appointment
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Send a preferred consultation time for Doctor review. This flow
+                does not require an available schedule slot.
+              </p>
+            </div>
+            {requestedAppointment ? (
+              <StatusBadge value={requestedAppointment.status} />
+            ) : null}
+          </div>
+
+          {!session?.accessToken ? (
+            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+              Please log in as a Patient before submitting an appointment request.
+            </div>
+          ) : null}
+
+          {session?.accessToken && !isPatient ? (
+            <div className="mt-5">
+              <ErrorState
+                title="Patient account required"
+                message="Only Patient users can submit appointment requests."
+              />
+            </div>
+          ) : null}
+
+          {requestSuccessMessage ? (
+            <div className="mt-5 rounded-lg border border-rehab-200 bg-rehab-50 p-4 text-sm font-semibold text-rehab-800">
+              {requestSuccessMessage}
+            </div>
+          ) : null}
+
+          <form
+            onSubmit={handleRequestSubmit(onRequestSubmit)}
+            className="mt-6 grid gap-5 lg:grid-cols-2"
+          >
+            <label>
+              <span className="field-label">Service</span>
+              <select
+                className="field-input mt-2"
+                {...registerRequest('medicalServiceId')}
+              >
+                <option value="">Choose service</option>
+                {servicesQuery.data?.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+              {requestErrors.medicalServiceId ? (
+                <span className="mt-2 block text-sm text-red-600">
+                  {requestErrors.medicalServiceId.message}
+                </span>
+              ) : null}
+            </label>
+
+            <label>
+              <span className="field-label">Reason</span>
+              <input
+                className="field-input mt-2"
+                placeholder="Stroke mobility assessment"
+                {...registerRequest('reason')}
+              />
+              {requestErrors.reason ? (
+                <span className="mt-2 block text-sm text-red-600">
+                  {requestErrors.reason.message}
+                </span>
+              ) : null}
+            </label>
+
+            <label>
+              <span className="field-label">Preferred start time</span>
+              <input
+                className="field-input mt-2"
+                type="datetime-local"
+                {...registerRequest('preferredStartTime')}
+              />
+              {requestErrors.preferredStartTime ? (
+                <span className="mt-2 block text-sm text-red-600">
+                  {requestErrors.preferredStartTime.message}
+                </span>
+              ) : null}
+            </label>
+
+            <label>
+              <span className="field-label">Preferred end time</span>
+              <input
+                className="field-input mt-2"
+                type="datetime-local"
+                {...registerRequest('preferredEndTime')}
+              />
+              {requestErrors.preferredEndTime ? (
+                <span className="mt-2 block text-sm text-red-600">
+                  {requestErrors.preferredEndTime.message}
+                </span>
+              ) : null}
+            </label>
+
+            {requestMutation.isError ? (
+              <div className="lg:col-span-2">
+                <ErrorState message={getApiErrorMessage(requestMutation.error)} />
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-3 sm:flex-row lg:col-span-2">
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={
+                  requestMutation.isPending ||
+                  !session?.accessToken ||
+                  !isPatient ||
+                  servicesQuery.isLoading
+                }
+              >
+                <CalendarPlus className="h-4 w-4" aria-hidden="true" />
+                {requestMutation.isPending
+                  ? 'Submitting request'
+                  : 'Request appointment'}
+              </button>
+              {!session?.accessToken ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => navigate('/login', { state: { from: location } })}
+                >
+                  Log in
+                </button>
+              ) : null}
+            </div>
+          </form>
+        </section>
       </div>
     </section>
   )
@@ -578,4 +799,8 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
 function normalizeReason(value?: string | null): string | null {
   const trimmed = value?.trim() ?? ''
   return trimmed.length > 0 ? trimmed : null
+}
+
+function toIsoDateTime(value: string): string {
+  return new Date(value).toISOString()
 }

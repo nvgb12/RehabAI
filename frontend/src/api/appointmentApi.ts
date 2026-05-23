@@ -3,6 +3,7 @@ import type {
   Appointment,
   AppointmentActionResponse,
   CancelAppointmentRequest,
+  CreateFlexibleAppointmentRequest,
   CreateAppointmentRequest,
 } from '../types/appointment'
 
@@ -11,6 +12,16 @@ export async function createAppointment(
 ): Promise<AppointmentActionResponse> {
   const response = await apiClient.post<AppointmentActionResponse>(
     '/api/appointments',
+    request,
+  )
+  return response.data
+}
+
+export async function createAppointmentRequest(
+  request: CreateFlexibleAppointmentRequest,
+): Promise<AppointmentActionResponse> {
+  const response = await apiClient.post<AppointmentActionResponse>(
+    '/api/appointments/requests',
     request,
   )
   return response.data
