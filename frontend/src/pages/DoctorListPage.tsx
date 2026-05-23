@@ -25,8 +25,8 @@ export function DoctorListPage() {
               Bác sĩ phục hồi chức năng
             </h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-              Danh sách chỉ hiển thị bác sĩ Active, đã duyệt public profile và
-              có lịch trống trong tương lai.
+              Danh sách chỉ hiển thị bác sĩ Active và đã được Admin duyệt
+              public profile. Lịch trống chỉ ảnh hưởng đặt lịch trực tiếp.
             </p>
           </div>
           <SearchBar
@@ -47,7 +47,7 @@ export function DoctorListPage() {
             <EmptyState
               icon={Stethoscope}
               title="Chưa có bác sĩ phù hợp"
-              message="Bác sĩ cần Active, PublicProfileApproved và có slot Available trong tương lai."
+              message="Bác sĩ cần Active và public profile đã được Admin duyệt."
             />
           ) : null}
 

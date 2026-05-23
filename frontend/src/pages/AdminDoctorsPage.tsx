@@ -1,14 +1,29 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Stethoscope, UserRoundPlus } from 'lucide-react'
-import { createDoctorAccount, getAdminDoctors } from '../api/admin'
+import {
+  CheckCircle2,
+  Copy,
+  Eye,
+  Stethoscope,
+  UserRoundPlus,
+  XCircle,
+} from 'lucide-react'
+import {
+  approveDoctorPublicProfile,
+  createDoctorAccount,
+  getAdminDoctorById,
+  getAdminDoctors,
+  rejectDoctorPublicProfile,
+} from '../api/admin'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { LoadingState } from '../components/LoadingState'
+import { StatusBadge } from '../components/StatusBadge'
 import { AdminLayout } from '../layouts/AdminLayout'
 import type { AdminDoctor, CreateDoctorResponse } from '../types/admin'
 import { getApiErrorMessage } from '../utils/apiError'
+import { formatDate } from '../utils/formatters'
 
 interface DoctorFormState {
   fullName: string
@@ -34,10 +49,23 @@ export function AdminDoctorsPage() {
   const [createdDoctor, setCreatedDoctor] =
     useState<CreateDoctorResponse | null>(null)
   const [copyMessage, setCopyMessage] = useState<string | null>(null)
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null)
+  const [rejectingDoctor, setRejectingDoctor] = useState<AdminDoctor | null>(null)
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [rejectionError, setRejectionError] = useState<string | null>(null)
+  const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(
+    null,
+  )
 
   const doctorsQuery = useQuery({
     queryKey: ['admin-doctors'],
     queryFn: getAdminDoctors,
+  })
+
+  const selectedDoctorQuery = useQuery({
+    queryKey: ['admin-doctor', selectedDoctorId],
+    queryFn: () => getAdminDoctorById(selectedDoctorId!),
+    enabled: Boolean(selectedDoctorId),
   })
 
   const createMutation = useMutation({
@@ -59,6 +87,48 @@ export function AdminDoctorsPage() {
     },
   })
 
+  const approveMutation = useMutation({
+    mutationFn: approveDoctorPublicProfile,
+    onSuccess: async (response) => {
+      setReviewSuccessMessage(response.message)
+      queryClient.setQueryData(
+        ['admin-doctor', response.doctor.doctorProfileId],
+        response.doctor,
+      )
+      await queryClient.invalidateQueries({ queryKey: ['admin-doctors'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['admin-doctor', response.doctor.doctorProfileId],
+      })
+    },
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: ({
+      doctorProfileId,
+      reason,
+    }: {
+      doctorProfileId: string
+      reason: string
+    }) =>
+      rejectDoctorPublicProfile(doctorProfileId, {
+        rejectionReason: reason,
+      }),
+    onSuccess: async (response) => {
+      setReviewSuccessMessage(response.message)
+      setRejectingDoctor(null)
+      setRejectionReason('')
+      setRejectionError(null)
+      queryClient.setQueryData(
+        ['admin-doctor', response.doctor.doctorProfileId],
+        response.doctor,
+      )
+      await queryClient.invalidateQueries({ queryKey: ['admin-doctors'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['admin-doctor', response.doctor.doctorProfileId],
+      })
+    },
+  })
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setCreatedDoctor(null)
@@ -70,6 +140,40 @@ export function AdminDoctorsPage() {
     await navigator.clipboard.writeText(value)
     setCopyMessage('Copied to clipboard.')
   }
+
+  function openReview(doctorProfileId: string) {
+    setSelectedDoctorId(doctorProfileId)
+    setReviewSuccessMessage(null)
+  }
+
+  function openRejectDialog(doctor: AdminDoctor) {
+    setRejectingDoctor(doctor)
+    setRejectionReason('')
+    setRejectionError(null)
+    setReviewSuccessMessage(null)
+  }
+
+  function submitRejection() {
+    const normalizedReason = rejectionReason.trim()
+
+    if (!rejectingDoctor) {
+      return
+    }
+
+    if (!normalizedReason) {
+      setRejectionError('Rejection reason is required.')
+      return
+    }
+
+    rejectMutation.mutate({
+      doctorProfileId: rejectingDoctor.doctorProfileId,
+      reason: normalizedReason,
+    })
+  }
+
+  const selectedDoctor = selectedDoctorQuery.data
+  const reviewActionInFlight =
+    approveMutation.isPending || rejectMutation.isPending
 
   return (
     <AdminLayout
@@ -248,7 +352,106 @@ export function AdminDoctorsPage() {
                 )
               : null
           }
+          selectedDoctorId={selectedDoctorId}
+          isReviewActionInFlight={reviewActionInFlight}
+          onReview={openReview}
+          onApprove={(doctorProfileId) => {
+            setReviewSuccessMessage(null)
+            approveMutation.mutate(doctorProfileId)
+          }}
+          onReject={openRejectDialog}
         />
+
+        {reviewSuccessMessage ? (
+          <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">
+            <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+            {reviewSuccessMessage}
+          </div>
+        ) : null}
+
+        {approveMutation.isError ? (
+          <ErrorState message={getApiErrorMessage(approveMutation.error)} />
+        ) : null}
+
+        {selectedDoctorId ? (
+          <DoctorReviewPanel
+            doctor={selectedDoctor ?? null}
+            isLoading={selectedDoctorQuery.isLoading}
+            error={
+              selectedDoctorQuery.isError
+                ? getApiErrorMessage(selectedDoctorQuery.error)
+                : null
+            }
+            isReviewActionInFlight={reviewActionInFlight}
+            onApprove={(doctorProfileId) => {
+              setReviewSuccessMessage(null)
+              approveMutation.mutate(doctorProfileId)
+            }}
+            onReject={openRejectDialog}
+          />
+        ) : null}
+
+        {rejectingDoctor ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-6 shadow-xl">
+              <h2 className="text-xl font-bold text-slate-950">
+                Reject public profile
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {rejectingDoctor.fullName} will see this reason and can resubmit
+                after updating the profile.
+              </p>
+
+              <label className="mt-5 block">
+                <span className="field-label">Rejection reason</span>
+                <textarea
+                  className="field-input mt-2 min-h-28 resize-y"
+                  value={rejectionReason}
+                  onChange={(event) => {
+                    setRejectionReason(event.target.value)
+                    setRejectionError(null)
+                  }}
+                />
+              </label>
+
+              {rejectionError ? (
+                <p className="mt-3 text-sm font-semibold text-red-600">
+                  {rejectionError}
+                </p>
+              ) : null}
+
+              {rejectMutation.isError ? (
+                <div className="mt-3">
+                  <ErrorState message={getApiErrorMessage(rejectMutation.error)} />
+                </div>
+              ) : null}
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="btn-secondary px-4 py-2"
+                  disabled={rejectMutation.isPending}
+                  onClick={() => {
+                    setRejectingDoctor(null)
+                    setRejectionReason('')
+                    setRejectionError(null)
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary px-4 py-2"
+                  disabled={rejectMutation.isPending}
+                  onClick={submitRejection}
+                >
+                  <XCircle className="h-4 w-4" aria-hidden="true" />
+                  {rejectMutation.isPending ? 'Rejecting' : 'Reject profile'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </AdminLayout>
   )
@@ -258,9 +461,23 @@ interface DoctorListPanelProps {
   doctors: AdminDoctor[]
   isLoading: boolean
   error: string | null
+  selectedDoctorId: string | null
+  isReviewActionInFlight: boolean
+  onReview: (doctorProfileId: string) => void
+  onApprove: (doctorProfileId: string) => void
+  onReject: (doctor: AdminDoctor) => void
 }
 
-function DoctorListPanel({ doctors, isLoading, error }: DoctorListPanelProps) {
+function DoctorListPanel({
+  doctors,
+  isLoading,
+  error,
+  selectedDoctorId,
+  isReviewActionInFlight,
+  onReview,
+  onApprove,
+  onReject,
+}: DoctorListPanelProps) {
   if (isLoading) {
     return <LoadingState label="Loading doctors" />
   }
@@ -295,7 +512,7 @@ function DoctorListPanel({ doctors, isLoading, error }: DoctorListPanelProps) {
       </div>
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200 xl:overflow-x-visible">
-        <table className="min-w-[860px] divide-y divide-slate-200 text-left text-sm xl:min-w-full">
+        <table className="min-w-[1120px] divide-y divide-slate-200 text-left text-sm xl:min-w-full">
           <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
             <tr>
               <th scope="col" className="whitespace-nowrap px-3 py-3">
@@ -317,13 +534,30 @@ function DoctorListPanel({ doctors, isLoading, error }: DoctorListPanelProps) {
                 Email Confirmed
               </th>
               <th scope="col" className="whitespace-nowrap px-3 py-3">
-                Profile Approved
+                Review
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3">
+                Approved
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3">
+                Ready
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3">
+                Actions
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
             {doctors.map((doctor) => (
-              <DoctorRow key={doctor.doctorProfileId} doctor={doctor} />
+              <DoctorRow
+                key={doctor.doctorProfileId}
+                doctor={doctor}
+                isSelected={selectedDoctorId === doctor.doctorProfileId}
+                isReviewActionInFlight={isReviewActionInFlight}
+                onReview={onReview}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
             ))}
           </tbody>
         </table>
@@ -334,10 +568,23 @@ function DoctorListPanel({ doctors, isLoading, error }: DoctorListPanelProps) {
 
 interface DoctorRowProps {
   doctor: AdminDoctor
+  isSelected: boolean
+  isReviewActionInFlight: boolean
+  onReview: (doctorProfileId: string) => void
+  onApprove: (doctorProfileId: string) => void
+  onReject: (doctor: AdminDoctor) => void
 }
 
-function DoctorRow({ doctor }: DoctorRowProps) {
+function DoctorRow({
+  doctor,
+  isSelected,
+  isReviewActionInFlight,
+  onReview,
+  onApprove,
+  onReject,
+}: DoctorRowProps) {
   const shortDoctorProfileId = doctor.doctorProfileId.slice(0, 8)
+  const canReview = doctor.publicProfileReviewStatus === 'Submitted'
 
   return (
     <tr className="align-middle text-slate-700">
@@ -371,13 +618,49 @@ function DoctorRow({ doctor }: DoctorRowProps) {
         </p>
       </td>
       <td className="whitespace-nowrap px-3 py-4">
-        <StatusBadge value={doctor.status} />
+        <AccountStatusBadge value={doctor.status} />
       </td>
       <td className="whitespace-nowrap px-3 py-4">
         <BooleanBadge value={doctor.emailConfirmed} />
       </td>
       <td className="whitespace-nowrap px-3 py-4">
+        <StatusBadge value={doctor.publicProfileReviewStatus} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-4">
         <BooleanBadge value={doctor.publicProfileApproved} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-4">
+        <BooleanBadge value={doctor.isPublicProfileReady} />
+      </td>
+      <td className="px-3 py-4">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn-secondary px-3 py-2"
+            onClick={() => onReview(doctor.doctorProfileId)}
+          >
+            <Eye className="h-4 w-4" aria-hidden="true" />
+            {isSelected ? 'Viewing' : 'View'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary px-3 py-2"
+            disabled={!canReview || isReviewActionInFlight}
+            onClick={() => onApprove(doctor.doctorProfileId)}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Approve
+          </button>
+          <button
+            type="button"
+            className="btn-secondary px-3 py-2"
+            disabled={!canReview || isReviewActionInFlight}
+            onClick={() => onReject(doctor)}
+          >
+            <XCircle className="h-4 w-4" aria-hidden="true" />
+            Reject
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -387,7 +670,7 @@ interface StatusBadgeProps {
   value: string
 }
 
-function StatusBadge({ value }: StatusBadgeProps) {
+function AccountStatusBadge({ value }: StatusBadgeProps) {
   const active = value === 'Active'
   const pending = value === 'PendingPasswordSetup' || value === 'PendingEmail'
 
@@ -403,6 +686,125 @@ function StatusBadge({ value }: StatusBadgeProps) {
     >
       {value}
     </span>
+  )
+}
+
+interface DoctorReviewPanelProps {
+  doctor: AdminDoctor | null
+  isLoading: boolean
+  error: string | null
+  isReviewActionInFlight: boolean
+  onApprove: (doctorProfileId: string) => void
+  onReject: (doctor: AdminDoctor) => void
+}
+
+function DoctorReviewPanel({
+  doctor,
+  isLoading,
+  error,
+  isReviewActionInFlight,
+  onApprove,
+  onReject,
+}: DoctorReviewPanelProps) {
+  if (isLoading) {
+    return <LoadingState label="Loading doctor review detail" />
+  }
+
+  if (error) {
+    return <ErrorState message={error} />
+  }
+
+  if (!doctor) {
+    return null
+  }
+
+  const canReview = doctor.publicProfileReviewStatus === 'Submitted'
+
+  return (
+    <section className="rounded-lg border border-care-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase text-care-700">
+            Public profile review
+          </p>
+          <h2 className="mt-2 text-xl font-bold text-slate-950">
+            {doctor.fullName}
+          </h2>
+          <p className="mt-1 text-sm font-semibold text-care-800">
+            {doctor.specialtyName}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge value={doctor.publicProfileReviewStatus} />
+          <BooleanBadge value={doctor.publicProfileApproved} />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Info label="Email" value={doctor.email} />
+        <Info label="Phone" value={doctor.phoneNumber ?? 'N/A'} />
+        <Info label="Submitted" value={formatDate(doctor.submittedForReviewAt)} />
+        <Info label="Reviewed" value={formatDate(doctor.reviewedAt)} />
+      </div>
+
+      <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
+        <p className="text-xs font-bold uppercase text-slate-500">Bio</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+          {doctor.bio || 'No bio has been added yet.'}
+        </p>
+      </div>
+
+      <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
+        <p className="text-sm font-bold text-slate-950">Readiness checklist</p>
+        {doctor.isPublicProfileReady ? (
+          <p className="mt-2 text-sm font-semibold text-emerald-700">
+            All required public profile items are complete.
+          </p>
+        ) : (
+          <ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            {doctor.publicProfileMissingItems.map((item) => (
+              <li key={item} className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-400" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {doctor.publicProfileRejectionReason ? (
+        <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="font-bold">Latest rejection reason</p>
+          <p className="mt-1 leading-6">{doctor.publicProfileRejectionReason}</p>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <button
+          type="button"
+          className="btn-primary px-4 py-2"
+          disabled={!canReview || isReviewActionInFlight}
+          onClick={() => onApprove(doctor.doctorProfileId)}
+        >
+          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+          Approve profile
+        </button>
+        <button
+          type="button"
+          className="btn-secondary px-4 py-2"
+          disabled={!canReview || isReviewActionInFlight}
+          onClick={() => onReject(doctor)}
+        >
+          <XCircle className="h-4 w-4" aria-hidden="true" />
+          Reject profile
+        </button>
+        {!canReview ? (
+          <p className="self-center text-sm font-semibold text-slate-600">
+            Only Submitted profiles can be approved or rejected.
+          </p>
+        ) : null}
+      </div>
+    </section>
   )
 }
 

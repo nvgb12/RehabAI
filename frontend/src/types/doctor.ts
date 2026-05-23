@@ -41,6 +41,11 @@ export interface DoctorSelfProfile {
   bio?: string | null
   yearsOfExperience?: number | null
   publicProfileApproved: boolean
+  publicProfileReviewStatus: string
+  submittedForReviewAt?: string | null
+  reviewedAt?: string | null
+  reviewedByAdminId?: string | null
+  publicProfileRejectionReason?: string | null
   avatarUrl?: string | null
   profileImageUrl?: string | null
   createdAt: string
@@ -64,7 +69,7 @@ export interface DoctorAppointment {
   patientName: string
   medicalServiceId: string
   medicalServiceName: string
-  doctorScheduleSlotId: string
+  doctorScheduleSlotId?: string | null
   startTime: string
   endTime: string
   status: string
@@ -111,4 +116,18 @@ export interface DoctorScheduleSlotActionResponse {
 
 export interface DoctorAvatarUploadResponse {
   avatarUrl: string
+}
+
+export interface DoctorPublicProfileSubmitResponse {
+  message: string
+  profile: DoctorSelfProfile
+}
+
+export interface DoctorAppointmentActionResponse {
+  message: string
+  appointment: DoctorAppointment
+}
+
+export interface RejectDoctorAppointmentRequest {
+  rejectionReason: string
 }

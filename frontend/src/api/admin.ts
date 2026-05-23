@@ -5,6 +5,7 @@ import type {
   AdminOrderMutationResponse,
   AdminOrderSummary,
   AdminDoctor,
+  AdminDoctorPublicProfileReviewResponse,
   AdminProduct,
   CreateDoctorRequest,
   CreateDoctorResponse,
@@ -12,6 +13,7 @@ import type {
   ProductMutationResponse,
   RevenueReport,
   RevenueReportFilters,
+  RejectDoctorPublicProfileRequest,
   UpdateOrderStatusRequest,
   UpsertAdminProductRequest,
   UpsertMedicalServiceRequest,
@@ -151,11 +153,40 @@ export async function getAdminDoctors(): Promise<AdminDoctor[]> {
   return normalizeList<AdminDoctor>(response.data)
 }
 
+export async function getAdminDoctorById(
+  doctorProfileId: string,
+): Promise<AdminDoctor> {
+  const response = await apiClient.get<AdminDoctor>(
+    `/api/admin/doctors/${doctorProfileId}`,
+  )
+  return response.data
+}
+
 export async function createDoctorAccount(
   request: CreateDoctorRequest,
 ): Promise<CreateDoctorResponse> {
   const response = await apiClient.post<CreateDoctorResponse>(
     '/api/admin/doctors',
+    request,
+  )
+  return response.data
+}
+
+export async function approveDoctorPublicProfile(
+  doctorProfileId: string,
+): Promise<AdminDoctorPublicProfileReviewResponse> {
+  const response = await apiClient.post<AdminDoctorPublicProfileReviewResponse>(
+    `/api/admin/doctors/${doctorProfileId}/public-profile/approve`,
+  )
+  return response.data
+}
+
+export async function rejectDoctorPublicProfile(
+  doctorProfileId: string,
+  request: RejectDoctorPublicProfileRequest,
+): Promise<AdminDoctorPublicProfileReviewResponse> {
+  const response = await apiClient.post<AdminDoctorPublicProfileReviewResponse>(
+    `/api/admin/doctors/${doctorProfileId}/public-profile/reject`,
     request,
   )
   return response.data
